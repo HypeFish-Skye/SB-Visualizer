@@ -1,0 +1,105 @@
+import { Suspense, useMemo } from 'react';
+import { Line, Environment } from '@react-three/drei';
+import { BRAND } from '../theme/brand.js';
+import { getHeatmapColor } from '../utils/mocapMath.js';
+import { usePlaybackStore } from '../store/usePlaybackStore.js';
+import { LabArena } from './scene/LabArena.js';
+import { PedestrianMesh } from './agents/PedestrianMesh.js';
+import { ObstacleMesh } from './agents/ObstacleMesh.js';
+import { RobotFbxMesh } from './agents/RobotFbxMesh.js';
+import { GhostFollower } from './agents/GhostFollower.js';
+import { CameraRig } from './camera/CameraRig.js';
+
+export function Scene() {
+  const currentFrame = usePlaybackStore((s) => s.currentFrame);
+  const trajectories = usePlaybackStore((s) => s.trajectories);
+  const matchTrajectories = usePlaybackStore((s) => s.matchTrajectories);
+  const cameraMode = usePlaybackStore((s) => s.cameraMode);
+  const heatmapMode = usePlaybackStore((s) => s.heatmapMode);
+  const telemetry = usePlaybackStore((s) => s.telemetry);
+  const setSelectedFile = usePlaybackStore((s) => s.setSelectedFile);
+  const getCornerAngle = usePlaybackStore((s) => s.getCornerAngle);
+  const getOvertakingConfig = usePlaybackStore((s) => s.getOvertakingConfig);
+
+  const cornerAngle = getCornerAngle();
+  const overtakingConfig = getOvertakingConfig();
+
+  const nextFrame = currentFrame + 1;
+  const leaderPos = trajectories.leader[currentFrame] || trajectories.leader[0];
+  const leaderNext = trajectories.leader[nextFrame] || leaderPos;
+
+  const followerPos = trajectories.follower[currentFrame] || trajectories.follower[0];
+  const followerNext = trajectories.follower[nextFrame] || followerPos;
+
+  const hasAccompanier = trajectories.accompanier?.length > 0;
+  const accompanierPos = hasAccompanier ? (trajectories.accompanier[currentFrame] || trajectories.accompanier[0]) : undefined;
+  const accompanierNext = hasAccompanier ? (trajectories.accompanier[nextFrame] || accompanierPos) : undefined;
+
+  const hasObstacle = trajectories.obstacle?.length > 0;
+  const obstaclePos = hasObstacle ? (trajectories.obstacle[currentFrame] || trajectories.obstacle[0]) : undefined;
+
+  const followerColors = useMemo(() => {
+    if (heatmapMode === 'none' || !telemetry || trajectories.follower.length === 0) return null;
+    const vals = heatmapMode === 'speed' ? telemetry.follower_speed : telemetry.follower_curvature;
+    const minVal = 0.0;
+    const maxVal = heatmapMode === 'speed' ? 2.2 : 1.5;
+    return vals.map((v) => getHeatmapColor(v, minVal, maxVal));
+  }, [heatmapMode, telemetry, trajectories.follower]);
+
+  return (
+    <>
+      <color attach="background" args={[BRAND.navy[700]]} />
+      <fog attach="fog" args={[BRAND.navy[700], 14, 42]} />
+
+      <Environment preset="city" environmentIntensity={0.55} />
+      <ambientLight intensity={0.45} />
+      <directionalLight position={[10, 16, 8]} intensity={1.2} castShadow shadow-mapSize={[1024, 1024]} />
+      <directionalLight position={[-10, 12, -10]} intensity={0.35} color={BRAND.cerulean[200]} />
+
+      <LabArena size={22} cornerAngle={cornerAngle} overtakingConfig={overtakingConfig} />
+
+      {/* Ensure at least 2 points exist before mounting Drei Line */}
+      {trajectories.leader.length >= 2 && (
+        <Line points={trajectories.leader} color={BRAND.beige[100]} lineWidth={3.5} />
+      )}
+      {hasAccompanier && trajectories.accompanier.length >= 2 && (
+        <Line points={trajectories.accompanier} color={BRAND.grape[400]} lineWidth={3.0} />
+      )}
+      {hasObstacle && trajectories.obstacle.length >= 2 && (
+        <Line points={trajectories.obstacle} color={BRAND.orange[400]} lineWidth={2.0} dashed dashSize={0.25} gapSize={0.2} opacity={0.65} transparent />
+      )}
+      {trajectories.follower.length >= 2 && (
+        <Line
+          points={trajectories.follower}
+          color={followerColors ? undefined : BRAND.cerulean[400]}
+          vertexColors={followerColors || undefined}
+          lineWidth={3.5}
+          dashed={!followerColors}
+          dashSize={0.3}
+          gapSize={0.2}
+        />
+      )}
+
+      {matchTrajectories.map((m, idx) => {
+        const ghostIdx = Math.min(currentFrame, m.coords.length - 1);
+        const ghostPos = m.coords[ghostIdx];
+        return (
+          <group key={idx}>
+            <Line points={m.coords} color={BRAND.orange[400]} lineWidth={1.5} opacity={0.35} transparent />
+            <GhostFollower position={ghostPos} label={m.name} onClick={() => setSelectedFile(m.filename)} />
+          </group>
+        );
+      })}
+
+      <PedestrianMesh position={leaderPos} nextPosition={leaderNext} color={BRAND.beige[100]} visorColor={BRAND.cerulean[400]} />
+      {hasAccompanier && <PedestrianMesh position={accompanierPos} nextPosition={accompanierNext} color={BRAND.grape[400]} visorColor={BRAND.grape[200]} />}
+      {hasObstacle && <ObstacleMesh position={obstaclePos} />}
+
+      <Suspense fallback={null}>
+        <RobotFbxMesh position={followerPos} nextPosition={followerNext} />
+      </Suspense>
+
+      <CameraRig mode={cameraMode} targetPos={followerPos} nextPos={followerNext} leaderPos={leaderPos} />
+    </>
+  );
+}

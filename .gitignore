@@ -1,0 +1,37 @@
+# C++ / CMake build outputs
+build/
+.cmake/
+CMakeFiles/
+CMakeCache.txt
+CMakeInit.txt
+cmake_install.cmake
+build.ninja
+rules.ninja
+TargetDirectories.txt
+*.so
+*.dylib
+*.pyd
+.ninja
+.ninja_deps
+.ninja_log
+.skbuild-info.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+*.egg-info/
+.pytest_cache/
+
+# Data & local databases
+*.duckdb
+*.duckdb.wal
+data/*.duckdb
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+.streamlit/
+
+.vscode/
