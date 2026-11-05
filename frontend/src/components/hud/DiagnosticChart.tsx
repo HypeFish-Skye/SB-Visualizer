@@ -9,7 +9,7 @@ export function DiagnosticChart() {
 
   const telemetry = usePlaybackStore((s) => s.telemetry);
   const currentFrame = usePlaybackStore((s) => s.currentFrame);
-  const totalFrames = usePlaybackStore((s) => s.trajectories.leader.length);
+  const totalFrames = usePlaybackStore((s) => s.getTotalFrames());
   const setCurrentFrame = usePlaybackStore((s) => s.setCurrentFrame);
   const setIsPlaying = usePlaybackStore((s) => s.setIsPlaying);
 

@@ -9,6 +9,9 @@ import { ObstacleMesh } from './agents/ObstacleMesh.js';
 import { RobotFbxMesh } from './agents/RobotFbxMesh.js';
 import { GhostFollower } from './agents/GhostFollower.js';
 import { CameraRig } from './camera/CameraRig.js';
+import { WallPlaneMesh } from './studies/WallPlaneMesh.js';
+import { PropPersonOrb } from './agents/PropPersonOrb.js';
+import { TrajectoryData } from '../types/types.js';
 
 export function Scene() {
   const currentFrame = usePlaybackStore((s) => s.currentFrame);

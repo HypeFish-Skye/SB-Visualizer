@@ -10,7 +10,7 @@ import {
   Trajectories,
   TrajectoryResponse,
   TrialMetadata,
-} from '../types/mocap.js';
+} from '../types/types.js';
 
 const API_BASE = 'http://localhost:8000/api';
 
@@ -114,10 +114,38 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
     return { corridorWidth, isNarrow, side };
   },
 
+  // Update getTotalFrames to check every agent array
   getTotalFrames: () => {
-    return get().trajectories.leader.length;
+    const { trajectories } = get();
+    return Math.max(
+      trajectories.leader?.length || 0,
+      trajectories.follower?.length || 0,
+      trajectories.accompanier?.length || 0,
+      trajectories.obstacle?.length || 0
+    );
   },
 
+  setCurrentFrame: (frameOrUpdater) => {
+    set((state) => {
+      const nextFrame = typeof frameOrUpdater === 'function' ? frameOrUpdater(state.currentFrame) : frameOrUpdater;
+      const total = Math.max(
+        state.trajectories.leader?.length || 0,
+        state.trajectories.follower?.length || 0,
+        state.trajectories.accompanier?.length || 0,
+        state.trajectories.obstacle?.length || 0
+      );
+      if (total === 0) return { currentFrame: 0 };
+      return { currentFrame: Math.max(0, Math.min(nextFrame, total - 1)) };
+    });
+  },
+
+  stepFrame: () => {
+    const total = get().getTotalFrames();
+    if (total === 0) return;
+    const currentFrame = get().currentFrame;
+    set({ currentFrame: currentFrame + 1 >= total ? 0 : currentFrame + 1 });
+  },
+  
   // State Mutators
   // Synchronous State Modifiers
   setSelectedStudy: (study) => {
@@ -138,25 +166,9 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
   setCameraMode: (mode) => set({ cameraMode: mode }),
   setHeatmapMode: (mode) => set({ heatmapMode: mode }),
 
-  setCurrentFrame: (frameOrUpdater) => {
-    set((state) => {
-      const nextFrame = typeof frameOrUpdater === 'function' ? frameOrUpdater(state.currentFrame) : frameOrUpdater;
-      const total = state.trajectories.leader.length;
-      if (total === 0) return { currentFrame: 0 };
-      return { currentFrame: Math.max(0, Math.min(nextFrame, total - 1)) };
-    });
-  },
-
   setIsPlaying: (isPlaying) => set({ isPlaying }),
 
   togglePlay: () => set((state) => ({ isPlaying: !state.isPlaying })),
-
-  stepFrame: () => {
-    const { trajectories, currentFrame } = get();
-    const total = trajectories.leader.length;
-    if (total === 0) return;
-    set({ currentFrame: currentFrame + 1 >= total ? 0 : currentFrame + 1 });
-  },
 
   // Async Network Operations
   fetchStudies: async () => {

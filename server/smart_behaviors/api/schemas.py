@@ -3,6 +3,14 @@ from pydantic import BaseModel, Field
 
 Vec3 = Tuple[float, float, float]
 
+
+class WallPlane(BaseModel):
+    center: List[float]       # [x, y, z] center of the wall
+    width: float              # Horizontal width in meters
+    height: float             # Height in meters from floor
+    normal: List[float]       # [nx, 0, nz] outward facing unit normal
+    corners: List[List[float]] # 4 vertices [[x,y,z], ...] for the vertical quad
+
 class TelemetryData(BaseModel):
     leader_speed: List[float] = Field(..., description="Leader linear velocity in m/s")
     follower_speed: List[float] = Field(..., description="Robot linear velocity in m/s")
@@ -16,6 +24,8 @@ class TrajectoryResponse(BaseModel):
     accompanier: List[Vec3] = Field(default_factory=list)
     obstacle: List[Vec3] = Field(default_factory=list)
     telemetry: TelemetryData
+    wall_plane: Optional[WallPlane] = None
+    prop_trajectory: Optional[List[List[float]]] = None
 
 class TrialMetadata(BaseModel):
     filename: str

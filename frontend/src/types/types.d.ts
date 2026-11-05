@@ -50,3 +50,21 @@ export interface OvertakingConfig {
   isNarrow: boolean;
   side: TableSide;
 }
+
+export interface WallPlaneData {
+  center: [number, number, number];
+  width: number;
+  height: number;
+  normal: [number, number, number];
+  corners: [number, number, number][]; // [BL, BR, TR, TL]
+}
+
+export interface TrajectoryData {
+  name: string;
+  leader: [number, number, number][];
+  follower: [number, number, number][];
+  accompanier?: [number, number, number][];
+  wall_plane?: WallPlaneData;
+  prop_trajectory?: [number, number, number][];
+  telemetry: any;
+}

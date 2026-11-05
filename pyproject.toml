@@ -1,5 +1,5 @@
 [build-system]
-requires = ["scikit-build-core>=0.9.0", "pybind11"]
+requires = ["scikit-build-core>=0.8.0", "pybind11"]
 build-backend = "scikit_build_core.build"
 
 [project]
@@ -17,3 +17,7 @@ dependencies = [
 cmake.build-type = "Release"
 wheel.packages = ["server/smart_behaviors"]
 cmake.source-dir = "."
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

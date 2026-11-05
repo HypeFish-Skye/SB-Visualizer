@@ -1,10 +1,10 @@
 import { ContactShadows, Grid, Line } from '@react-three/drei';
-import { BRAND } from '../../theme/brand';
-import { CornerAngle, OvertakingConfig } from '../../types/mocap';
-import { CornerWall } from '../studies/CornerWall';
-import { CorridorTable } from '../studies/CorridorTable';
-import { SeeThroughShelves } from '../studies/SeeThroughShelves';
-import { MocapTrussRig } from './MocapTrussRig';
+import { BRAND } from '../../theme/brand.js';
+import { CornerAngle, OvertakingConfig } from '../../types/types.js';
+import { CornerWall } from '../studies/CornerWall.js';
+import { CorridorTable } from '../studies/CorridorTable.js';
+import { SeeThroughShelves } from '../studies/SeeThroughShelves.js';
+import { MocapTrussRig } from './MocapTrussRig.js';
 
 interface LabArenaProps {
   size?: number;
