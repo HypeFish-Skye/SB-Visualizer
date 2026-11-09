@@ -11,6 +11,7 @@ import {
   Trajectories,
   TrajectoryResponse,
   TrialMetadata,
+  Prop
 } from '../types/types.js';
 
 const API_BASE = 'http://localhost:8000/api';
@@ -65,7 +66,9 @@ interface PlaybackState {
   loadTrial: (filePath: string) => Promise<void>;
   runDTWSearch: () => Promise<void>;
   getIsDoorStudy: () => boolean;
-  getPropType: () => 'person' | 'shelf' | 'stroller' | 'generic';
+  getPropType: () => Prop;
+  getFollowerType: () => 'robot' | 'physical_prop' | 'none';
+  getIsPropPerson: () => boolean;
 }
 
 export const usePlaybackStore = create<PlaybackState>((set, get) => ({
@@ -285,7 +288,6 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
     }
   },
 
-  // In usePlaybackStore.ts:
   getIsDoorStudy: () => {
     const { selectedFile, selectedStudy } = get();
     const name = (selectedFile || '').toLowerCase();
@@ -293,12 +295,55 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
     return study.includes('door') || name.includes('door');
   },
 
-  getPropType: (): 'person' | 'shelf' | 'stroller' | 'generic' => {
+  // In usePlaybackStore.ts:
+  getFollowerType: (): 'robot' | 'physical_prop' | 'none' => {
+    const { selectedFile, selectedStudy, trajectories } = get();
+    if (!trajectories.follower || trajectories.follower.length === 0) return 'none';
+    const name = (selectedFile || '').toLowerCase();
+    const study = (selectedStudy || '').toLowerCase();
+
+    // In ReadingWallIntentions and Doors, the follower is an inanimate physical cart/wagon/shelf
+    if (
+      study.includes('readingwall') ||
+      name.includes('cart') ||
+      name.includes('wagon') ||
+      name.includes('shelf') ||
+      name.includes('stroller')
+    ) {
+      return 'physical_prop';
+    }
+
+    // Default for autonomous mobile robot studies (Cornering, Overtaking, etc.)
+    return 'robot';
+  },
+
+  getIsPropPerson: (): boolean => {
+    const { selectedFile, selectedStudy, rawSkeleton, trajectories } = get();
+    const name = (selectedFile || '').toLowerCase();
+    const study = (selectedStudy || '').toLowerCase();
+
+    // Strictly check for the human prop person condition
+    if (name.includes('propperson') || name.includes('propalyssa')) return true;
+
+    // If marker names contain human markers for the prop
+    if (rawSkeleton?.prop_markers) {
+      const keys = Object.keys(rawSkeleton.prop_markers);
+      // PropPerson markers are typically M_1..M_5 or human head markers
+      if (keys.some((k) => k.toLowerCase().includes('prop') || k.toLowerCase().includes('head'))) {
+        return true;
+      }
+    }
+
+    return false;
+  },
+
+  getPropType: (): Prop => {
     const { selectedFile } = get();
     const name = (selectedFile || '').toLowerCase();
+    if (name.includes('cart')) return 'cart';
     if (name.includes('shelf')) return 'shelf';
     if (name.includes('stroller')) return 'stroller';
-    if (name.includes('propPerson') || name.includes('readingwall')) return 'person';
+    if (name.includes('wagon')) return 'wagon'; 
     return 'generic';
   },
 }));

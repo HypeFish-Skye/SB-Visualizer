@@ -4,6 +4,7 @@ export type Vec2Tuple = [number, number];
 export type CameraMode = 'orbit' | 'chase' | 'duo' | 'overhead' | 'follower_pov';
 export type HeatmapMode = 'none' | 'speed' | 'curvature';
 export type CorridorWidth = 'thin' | 'medium' | 'wide';
+export type Prop = 'cart' | 'shelf' | 'stroller' | 'wagon' | 'generic'
 export type TableSide = 'left' | 'right';
 export type CornerAngle = 45 | 90 | 135;
 

@@ -1,6 +1,5 @@
-import React, {useState, Suspense, useMemo } from 'react';
-import { Line, Environment, OrbitControls } from '@react-three/drei';
-import * as THREE from 'three';
+import React, { useState, Suspense, useMemo } from 'react';
+import { Line, Environment } from '@react-three/drei';
 import { BRAND } from '../theme/brand.js';
 import { getHeatmapColor } from '../utils/mocapMath.js';
 import { usePlaybackStore } from '../store/usePlaybackStore.js';
@@ -11,9 +10,9 @@ import { ObstacleMesh } from './agents/ObstacleMesh.js';
 import { RobotFbxMesh } from './agents/RobotFbxMesh.js';
 import { GhostFollower } from './agents/GhostFollower.js';
 import { CameraRig } from './camera/CameraRig.js';
-import { PropMesh } from './agents/PropMesh.js';
 import { ViconSkeletonMesh } from './agents/ViconSkeletonMesh.js';
 import { DoorMesh } from './agents/DoorMesh.js';
+import { PhysicalPropMesh } from './agents/PhysicalPropMesh.js';
 
 export function Scene() {
   const currentFrame = usePlaybackStore((s) => s.currentFrame);
@@ -28,12 +27,16 @@ export function Scene() {
   const getCornerAngle = usePlaybackStore((s) => s.getCornerAngle);
   const getOvertakingConfig = usePlaybackStore((s) => s.getOvertakingConfig);
   const getIsReadingWall = usePlaybackStore((s) => s.getIsReadingWall);
+  const getIsDoorStudy = usePlaybackStore((s) => s.getIsDoorStudy);
+  const getIsPropPerson = usePlaybackStore((s) => s.getIsPropPerson);
+  const getFollowerType = usePlaybackStore((s) => s.getFollowerType);
 
   const cornerAngle = getCornerAngle();
   const overtakingConfig = getOvertakingConfig();
-  const isReadingWall = usePlaybackStore((s) => s.getIsReadingWall());
-  const isDoorStudy = usePlaybackStore((s) => s.getIsDoorStudy());
-  const propType = usePlaybackStore((s) => s.getPropType());
+  const isReadingWall = getIsReadingWall();
+  const isDoorStudy = getIsDoorStudy ? getIsDoorStudy() : false;
+  const isPropPerson = getIsPropPerson ? getIsPropPerson() : false;
+  const followerType = getFollowerType();
 
   const nextFrame = currentFrame + 1;
   const leaderPos = trajectories.leader[currentFrame] || trajectories.leader[0];
@@ -51,11 +54,19 @@ export function Scene() {
   const hasObstacle = (trajectories.obstacle?.length ?? 0) > 0;
   const obstaclePos = hasObstacle ? (trajectories.obstacle[currentFrame] || trajectories.obstacle[0]) : undefined;
 
-// Only consider props valid if this study actually has a prop or if prop markers exist
-  const hasProp = Boolean(
-    (isReadingWall || isDoorStudy) &&
-    ((trajectories.prop?.length ?? 0) > 0 || (rawSkeleton?.prop_markers && Object.keys(rawSkeleton.prop_markers).length > 0))
-  );
+  // Prop Coordinates
+  const propTrajectory = trajectories.prop || [];
+  const hasProp = propTrajectory.length > 0 || !!(rawSkeleton?.prop_markers && Object.keys(rawSkeleton.prop_markers).length > 0);
+  const rawPropPos = propTrajectory[currentFrame] || propTrajectory[0];
+  const rawPropNext = propTrajectory[nextFrame] || rawPropPos;
+
+  // Ground-plane coordinates for human PedestrianMesh (Y = 0.02)
+  const propPedestrianPos: [number, number, number] | undefined = rawPropPos
+    ? [rawPropPos[0], 0.02, rawPropPos[2]]
+    : undefined;
+  const propPedestrianNext: [number, number, number] | undefined = rawPropNext
+    ? [rawPropNext[0], 0.02, rawPropNext[2]]
+    : undefined;
 
   const followerColors = useMemo(() => {
     if (heatmapMode === 'none' || !telemetry || trajectories.follower.length === 0) return null;
@@ -83,7 +94,7 @@ export function Scene() {
         isReadingWall={isReadingWall}
       />
 
-      {/* Trajectory Lines */}
+      {/* Trajectories */}
       {trajectories.leader.length >= 2 && (
         <Line points={trajectories.leader} color={BRAND.beige[100]} lineWidth={3.5} />
       )}
@@ -105,24 +116,9 @@ export function Scene() {
         />
       )}
 
-      {/* Multi-Run DTW Ghosts */}
-      {matchTrajectories.map((m, idx) => {
-        const ghostIdx = Math.min(currentFrame, m.coords.length - 1);
-        const ghostPos = m.coords[ghostIdx];
-        return (
-          <group key={idx}>
-            <Line points={m.coords} color={BRAND.orange[400]} lineWidth={1.5} opacity={0.35} transparent />
-            <GhostFollower position={ghostPos} label={m.name} onClick={() => setSelectedFile(m.filename)} />
-          </group>
-        );
-      })}
-
-      {/* Human Leader Representation */}
+      {/* Leader Representation */}
       {useRawRig && rawSkeleton?.leader_markers ? (
-        <ViconSkeletonMesh
-          markers={rawSkeleton.leader_markers}
-          currentFrame={currentFrame}
-        />
+        <ViconSkeletonMesh markers={rawSkeleton.leader_markers} currentFrame={currentFrame} />
       ) : (
         <Suspense fallback={<PedestrianMesh position={leaderPos} nextPosition={leaderNext} />}>
           <HumanFbxMesh
@@ -135,7 +131,7 @@ export function Scene() {
         </Suspense>
       )}
 
-      {/* Accompanier Agent */}
+      {/* Accompanier */}
       {hasAccompanier && (
         <PedestrianMesh
           position={accompanierPos}
@@ -145,10 +141,10 @@ export function Scene() {
         />
       )}
 
-      {/* Obstacles (Strictly for ObstacleNavigation & Cornering) */}
+      {/* Obstacles (ObstacleNavigation, Cornering) */}
       {hasObstacle && <ObstacleMesh position={obstaclePos} />}
 
-     {/* Door Frame & Swing Leaf (Strictly for Door Studies) */}
+      {/* Door Frame & Door Swing (Strictly Doors Study) */}
       {isDoorStudy && (
         <DoorMesh
           doorMarkers={rawSkeleton?.door_markers}
@@ -157,76 +153,53 @@ export function Scene() {
         />
       )}
 
-      {/* Generalized Physical Prop / Accompaniment */}
-      {hasProp && (
-        <PropMesh
-          propTrajectory={trajectories.prop || []}
-          propMarkers={rawSkeleton?.prop_markers}
-          propType={propType}
-          currentFrame={currentFrame}
-        />
-      )}``
-
-      {/* Static Door Frame Perimeter */}
-      {rawSkeleton?.door_markers && (
-        <group name="StaticDoorFrame">
-          {Object.entries(rawSkeleton.door_markers).map(([name, pt]) => (
-            <mesh key={`door-${name}`} position={pt as [number, number, number]}>
-              <sphereGeometry args={[0.022, 16, 16]} />
-              <meshStandardMaterial color="#38bdf8" emissive="#0284c7" emissiveIntensity={0.7} />
-            </mesh>
-          ))}
-
-          {/* Door Frame Connecting Outline (Left Jamb -> Header -> Right Jamb) */}
-          {rawSkeleton.door_markers['M_4'] && rawSkeleton.door_markers['M_1'] && (
-            <line>
-              <bufferGeometry
-                attach="geometry"
-                onUpdate={(geom) => {
-                  const m1 = rawSkeleton.door_markers!['M_1'];
-                  const m2 = rawSkeleton.door_markers!['M_2'];
-                  const m3 = rawSkeleton.door_markers!['M_3'];
-                  const m4 = rawSkeleton.door_markers!['M_4'];
-                  const m5 = rawSkeleton.door_markers!['M_5'];
-                  geom.setFromPoints([
-                    new THREE.Vector3(m4[0], 0.02, m4[2]),
-                    new THREE.Vector3(m4[0], m4[1], m4[2]),
-                    new THREE.Vector3(m3[0], m3[1], m3[2]),
-                    new THREE.Vector3(m1[0], m1[1], m1[2]),
-                    new THREE.Vector3(m2[0], m2[1], m2[2]),
-                    new THREE.Vector3(m5[0], m5[1], m5[2]),
-                    new THREE.Vector3(m5[0], 0.02, m5[2]),
-                  ]);
-                }}
-              />
-              <lineBasicMaterial color="#0284c7" linewidth={2} opacity={0.75} transparent />
-            </line>
+      {/* ======================================================== */}
+      {/* FOLLOWER ENTITY (Robot vs. Physical Prop Cart/Wagon)     */}
+      {/* ======================================================== */}
+      {hasFollower && (
+        <>
+          {followerType === 'robot' ? (
+            /* Autonomous Robot Follower (Gita) */
+            <Suspense fallback={null}>
+              <RobotFbxMesh position={followerPos} nextPosition={followerNext} />
+            </Suspense>
+          ) : (
+            /* Follower Prop (Cart / Wagon / Shelf taking the place of the robot) */
+            <PhysicalPropMesh
+              trajectory={trajectories.follower}
+              markers={rawSkeleton?.prop_markers}
+              currentFrame={currentFrame}
+            />
           )}
+        </>
+      )}
+
+      {/* ======================================================== */}
+      {/* SECONDARY PROP ENTITY (Prop Person in ReadingWall)      */}
+      {/* ======================================================== */}
+      {hasProp && isPropPerson && (
+        <group name="PropPerson">
+          <PedestrianMesh
+            position={propPedestrianPos}
+            nextPosition={propPedestrianNext}
+            color="#f59e0b" // Amber/Gold confederate
+            visorColor="#fbbf24"
+          />
+          {rawSkeleton?.prop_markers &&
+            Object.entries(rawSkeleton.prop_markers).map(([name, stream]) => {
+              const pt = stream[Math.min(currentFrame, stream.length - 1)];
+              if (!pt || (pt[0] === 0 && pt[1] === 0 && pt[2] === 0)) return null;
+              return (
+                <mesh key={`propperson-marker-${name}`} position={pt}>
+                  <sphereGeometry args={[0.015, 16, 16]} />
+                  <meshStandardMaterial color="#f59e0b" emissive="#d97706" emissiveIntensity={0.8} />
+                </mesh>
+              );
+            })}
         </group>
       )}
 
-      {/* Dynamic Door Swing Leaf */}
-      {rawSkeleton?.doorswing_markers && (
-        <group name="DoorSwing">
-          {Object.entries(rawSkeleton.doorswing_markers).map(([name, stream]) => {
-            const pt = stream[Math.min(currentFrame, stream.length - 1)];
-            if (!pt || (pt[0] === 0 && pt[1] === 0 && pt[2] === 0)) return null;
-            return (
-              <mesh key={`doorswing-${name}`} position={pt}>
-                <sphereGeometry args={[0.02, 16, 16]} />
-                <meshStandardMaterial color="#10b981" emissive="#059669" emissiveIntensity={0.8} />
-              </mesh>
-            );
-          })}
-        </group>
-      )}
-
-      {/* Robot Agent */}
-      <Suspense fallback={null}>
-        <RobotFbxMesh position={followerPos} nextPosition={followerNext} />
-      </Suspense>
-
-      {/* Camera Rig (Leader fallback when no follower) */}
+      {/* Camera Rig */}
       <CameraRig
         mode={cameraMode}
         targetPos={followerPos}

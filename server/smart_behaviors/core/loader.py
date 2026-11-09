@@ -245,12 +245,10 @@ class TrajectoryLoader:
 
         # 2. If not, resolve from the Raw S3 bucket path
         if raw_df is None:
-            # Detect study folder name from file path or trial name
             study = "ReadingWallIntentions"
             if "doorswithwideaccompaniment" in file_path.lower():
                 study = "DoorsWithWideAccompaniment"
             elif "/" in file_path and "raw" in file_path.lower():
-                # Extract study directory directly if available
                 parts = file_path.split("/")
                 if "Raw" in parts:
                     study = parts[parts.index("Raw") + 1]
@@ -259,7 +257,6 @@ class TrajectoryLoader:
             try:
                 raw_df = cursor.execute(f"SELECT * FROM read_parquet('{raw_s3_url}');").df()
             except Exception:
-                # Fallback: check with wildcard pattern
                 try:
                     stem = base_name.replace(".parquet", "")
                     wildcard = f"s3://smart-behaviors-database/Raw/{study}/*{stem}*.parquet"
@@ -272,67 +269,51 @@ class TrajectoryLoader:
 
         cols = list(raw_df.columns)
 
-        # 3. Identify human participant namespace (e.g. "Avi", "Eleni", "Ben")
+        # 3. Identify primary human walker (e.g. "Ben", "Isa", "Avi", "Eleni")
         names = sorted({c.split(":")[0] for c in cols if ":" in c})
-        
-        # Check for standard human Plug-in Gait markers to ensure objects (Door, Shelf) aren't chosen
-        KNOWN_HUMAN = {"ARIEL", "C7", "CLAV", "LASI", "RASI", "LFHD", "RFHD", "STRN"}
-        human_candidates = [
-            n for n in names
-            if any(f"{n}:{m}-x" in cols for m in KNOWN_HUMAN)
-        ]
-        if not human_candidates:
-            NON_HUMAN = {"cart", "wagon", "wall", "door", "doorswing", "doorframe", "shelf", "movableshelf", "stroller", "obstacle", "box"}
-            human_candidates = [n for n in names if not n.startswith("Prop") and n.lower() not in NON_HUMAN]
-
-        if not human_candidates:
+        NON_HUMAN = {
+            "cart", "wagon", "wall", "door", "doorswing", "doorframe",
+            "shelf", "movableshelf", "stroller", "obstacle", "box", "smallcart", "largecart"
+        }
+        human_names = [n for n in names if not n.startswith("Prop") and n.lower() not in NON_HUMAN]
+        if not human_names:
             return None
 
-        walker = human_candidates[0]
+        walker = human_names[0]
 
         # 4. Extract 53 Leader markers
         leader_markers: dict[str, list[list[float]]] = {}
         for c in cols:
             if c.startswith(f"{walker}:") and c.endswith("-x"):
                 marker_name = c[len(walker) + 1 : -2]
-                mx = f"{walker}:{marker_name}-x"
-                my = f"{walker}:{marker_name}-y"
-                mz = f"{walker}:{marker_name}-z"
-
+                mx, my, mz = f"{walker}:{marker_name}-x", f"{walker}:{marker_name}-y", f"{walker}:{marker_name}-z"
                 if mx in cols and my in cols and mz in cols:
                     xs = pd.to_numeric(raw_df[mx], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
                     ys = pd.to_numeric(raw_df[mz], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
                     zs = pd.to_numeric(raw_df[my], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
+                    leader_markers[marker_name] = np.column_stack([xs, ys, zs]).round(4).tolist()[:max_frames]
 
-                    coords = np.column_stack([xs, ys, zs]).round(4).tolist()
-                    leader_markers[marker_name] = coords[:max_frames]
-
-        # 5. Extract Prop / Accompaniment markers (PropPerson, Shelf, Stroller, etc.)
+        # 5. Extract Prop Person (Human confederate, e.g. PropAlyssa:M_1..5)
+        # and Physical Object Props (Shelf, Stroller, Wagon, Cart)
         prop_markers: dict[str, list[list[float]]] = {}
-        prop_candidates = [
-            n for n in names 
-            if n.startswith("Prop") or n.lower() in ["shelf", "movableshelf", "stroller", "cart", "wagon"]
-        ]
-        if prop_candidates:
-            prop_who = prop_candidates[0]
-            # Collect all markers belonging to this object (e.g. M_1, M_2, M_3...)
+        PROP_TARGETS = ["prop", "shelf", "movableshelf", "stroller", "wagon", "cart", "smallcart", "largecart"]
+        prop_namespaces = [n for n in names if any(n.lower().startswith(tgt) for tgt in PROP_TARGETS)]
+
+        if prop_namespaces:
+            prop_who = prop_namespaces[0]
             prop_marker_names = sorted({
                 c[len(prop_who) + 1 : -2]
                 for c in cols
                 if c.startswith(f"{prop_who}:") and c.endswith("-x")
             })
             for m_name in prop_marker_names:
-                pmx = f"{prop_who}:{m_name}-x"
-                pmy = f"{prop_who}:{m_name}-y"
-                pmz = f"{prop_who}:{m_name}-z"
+                pmx, pmy, pmz = f"{prop_who}:{m_name}-x", f"{prop_who}:{m_name}-y", f"{prop_who}:{m_name}-z"
                 if pmx in cols and pmy in cols and pmz in cols:
                     pxs = pd.to_numeric(raw_df[pmx], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
                     pys = pd.to_numeric(raw_df[pmz], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
                     pzs = pd.to_numeric(raw_df[pmy], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
-
                     if np.nanmax(np.abs(pxs)) > 0.05:
-                        pcoords = np.column_stack([pxs, pys, pzs]).round(4).tolist()
-                        prop_markers[m_name] = pcoords[:max_frames]
+                        prop_markers[m_name] = np.column_stack([pxs, pys, pzs]).round(4).tolist()[:max_frames]
 
 
         # Extract Static Door Frame Perimeter (averaged into static 3D reference coordinates)
@@ -439,10 +420,12 @@ class TrajectoryLoader:
         # -------------------------------------------------------------
         # 1. RAW / WORLD COORDINATE EXTRACTION
         # -------------------------------------------------------------
-        # Follower (Robot / Cart)
-        foll_data = cls._extract_world_coords(df, [
-            "Follower01", "Follower", "Individual02", "Robot01", "Robot", "Gita", "Cart01", "Cart"
-        ])
+        # Follower: Robot (other studies) or Follower Prop (Cart/Wagon in ReadingWall, etc.)
+        follower_aliases = [
+            "Follower01", "Follower", "Individual02", "Robot01", "Robot", "Gita",
+            "Cart01", "Cart", "Wagon01", "Wagon", "SmallCart", "LargeCart"
+        ]
+        foll_data = cls._extract_world_coords(df, follower_aliases)
         if foll_data is None:
             fx_col = cls._find_column(cols, [
                 "RelativePositionX_Follower01_Follower01Allocentric",
@@ -470,9 +453,13 @@ class TrajectoryLoader:
                 lead_data = (foll_data[0] + dx, foll_data[1] + dy)
 
         # Prop Person (DynamicObject01 / DynamicObject)
-        prop_data = cls._extract_world_coords(df, [
-            "DynamicObject01", "DynamicObject", "PropPerson01", "PropPerson", "Prop01", "Prop"
-        ])
+        # Separate Prop / Confederate Person (strictly for trials with a secondary prop agent)
+        prop_aliases = ["PropPerson01", "PropPerson", "Prop01", "Prop", "Shelf", "MovableShelf", "Stroller"]
+        if "accompanied" not in file_path.lower():
+            # Only check DynamicObject01 if it hasn't already been mapped as a follower
+            if foll_data is None:
+                prop_aliases.extend(["DynamicObject01", "DynamicObject"])
+        prop_data = cls._extract_world_coords(df, prop_aliases)
         if prop_data is None and foll_data is not None:
             rel_px = cls._find_column(cols, [
                 "RelativePositionX_DynamicObject01Follower01_Follower01Allocentric",
@@ -555,7 +542,6 @@ class TrajectoryLoader:
                 )
 
         coord_scale = 1000.0 if max_coord_val > 30.0 else 1.0
-
 
         follower_coords = cls._to_vec3_list(*foll_data, scale=coord_scale) if foll_data is not None else []
         leader_coords = cls._to_vec3_list(*lead_data, scale=coord_scale) if lead_data is not None else []
