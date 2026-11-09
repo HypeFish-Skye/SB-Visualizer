@@ -269,7 +269,7 @@ class TrajectoryLoader:
 
         cols = list(raw_df.columns)
 
-        # 3. Identify primary human walker (e.g. "Ben", "Isa", "Avi", "Eleni")
+        # 3. Identify human participant namespace (e.g. "Ben", "Isa", "Avi", "Eleni")
         names = sorted({c.split(":")[0] for c in cols if ":" in c})
         NON_HUMAN = {
             "cart", "wagon", "wall", "door", "doorswing", "doorframe",
@@ -293,14 +293,16 @@ class TrajectoryLoader:
                     zs = pd.to_numeric(raw_df[my], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
                     leader_markers[marker_name] = np.column_stack([xs, ys, zs]).round(4).tolist()[:max_frames]
 
-        # 5. Extract Prop Person (Human confederate, e.g. PropAlyssa:M_1..5)
-        # and Physical Object Props (Shelf, Stroller, Wagon, Cart)
+        # 5. Extract ANY Prop / Accompaniment markers (PropPerson, Shelf, Stroller, Wagon, Cart)
         prop_markers: dict[str, list[list[float]]] = {}
         PROP_TARGETS = ["prop", "shelf", "movableshelf", "stroller", "wagon", "cart", "smallcart", "largecart"]
-        prop_namespaces = [n for n in names if any(n.lower().startswith(tgt) for tgt in PROP_TARGETS)]
-
+        prop_namespaces = [
+            n for n in names
+            if any(n.lower().startswith(tgt) for tgt in PROP_TARGETS)
+        ]
         if prop_namespaces:
             prop_who = prop_namespaces[0]
+            # Match all marker channels dynamically (M_1..M_n or named markers)
             prop_marker_names = sorted({
                 c[len(prop_who) + 1 : -2]
                 for c in cols
@@ -314,7 +316,6 @@ class TrajectoryLoader:
                     pzs = pd.to_numeric(raw_df[pmy], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
                     if np.nanmax(np.abs(pxs)) > 0.05:
                         prop_markers[m_name] = np.column_stack([pxs, pys, pzs]).round(4).tolist()[:max_frames]
-
 
         # Extract Static Door Frame Perimeter (averaged into static 3D reference coordinates)
         door_markers: dict[str, list[float]] = {}
@@ -436,9 +437,10 @@ class TrajectoryLoader:
                 "RelativePositionY_Follower_Allocentric"
             ])
             if fx_col and fy_col:
-                xs = df[fx_col].ffill().bfill().fillna(0.0).to_numpy()
-                ys = df[fy_col].ffill().bfill().fillna(0.0).to_numpy()
-                foll_data = (xs, ys)
+                foll_data = (
+                    df[fx_col].ffill().bfill().fillna(0.0).to_numpy(),
+                    df[fy_col].ffill().bfill().fillna(0.0).to_numpy()
+                )
 
         # Leader (Primary Human)
         lead_data = cls._extract_world_coords(df, [
@@ -454,7 +456,10 @@ class TrajectoryLoader:
 
         # Prop Person (DynamicObject01 / DynamicObject)
         # Separate Prop / Confederate Person (strictly for trials with a secondary prop agent)
-        prop_aliases = ["PropPerson01", "PropPerson", "Prop01", "Prop", "Shelf", "MovableShelf", "Stroller"]
+        prop_aliases = [
+            "PropPerson01", "PropPerson", "Prop01", "Prop",
+            "DynamicObject01", "DynamicObject", "Shelf01", "Shelf", "MovableShelf", "Stroller01", "Stroller"
+        ]
         if "accompanied" not in file_path.lower():
             # Only check DynamicObject01 if it hasn't already been mapped as a follower
             if foll_data is None:

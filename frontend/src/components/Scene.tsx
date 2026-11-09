@@ -28,15 +28,15 @@ export function Scene() {
   const getOvertakingConfig = usePlaybackStore((s) => s.getOvertakingConfig);
   const getIsReadingWall = usePlaybackStore((s) => s.getIsReadingWall);
   const getIsDoorStudy = usePlaybackStore((s) => s.getIsDoorStudy);
+  const getFollowerKind = usePlaybackStore((s) => s.getFollowerKind);
   const getIsPropPerson = usePlaybackStore((s) => s.getIsPropPerson);
-  const getFollowerType = usePlaybackStore((s) => s.getFollowerType);
 
   const cornerAngle = getCornerAngle();
   const overtakingConfig = getOvertakingConfig();
   const isReadingWall = getIsReadingWall();
   const isDoorStudy = getIsDoorStudy ? getIsDoorStudy() : false;
+  const followerKind = getFollowerKind ? getFollowerKind() : 'robot';
   const isPropPerson = getIsPropPerson ? getIsPropPerson() : false;
-  const followerType = getFollowerType();
 
   const nextFrame = currentFrame + 1;
   const leaderPos = trajectories.leader[currentFrame] || trajectories.leader[0];
@@ -54,13 +54,16 @@ export function Scene() {
   const hasObstacle = (trajectories.obstacle?.length ?? 0) > 0;
   const obstaclePos = hasObstacle ? (trajectories.obstacle[currentFrame] || trajectories.obstacle[0]) : undefined;
 
-  // Prop Coordinates
+  // Prop coordinates & markers
   const propTrajectory = trajectories.prop || [];
-  const hasProp = propTrajectory.length > 0 || !!(rawSkeleton?.prop_markers && Object.keys(rawSkeleton.prop_markers).length > 0);
+  const hasPropData =
+    propTrajectory.length > 0 ||
+    !!(rawSkeleton?.prop_markers && Object.keys(rawSkeleton.prop_markers).length > 0);
+
   const rawPropPos = propTrajectory[currentFrame] || propTrajectory[0];
   const rawPropNext = propTrajectory[nextFrame] || rawPropPos;
 
-  // Ground-plane coordinates for human PedestrianMesh (Y = 0.02)
+  // Feet position on ground plane (Y = 0.02) for human confederate PedestrianMesh
   const propPedestrianPos: [number, number, number] | undefined = rawPropPos
     ? [rawPropPos[0], 0.02, rawPropPos[2]]
     : undefined;
@@ -94,7 +97,7 @@ export function Scene() {
         isReadingWall={isReadingWall}
       />
 
-      {/* Trajectories */}
+      {/* Trajectory Lines */}
       {trajectories.leader.length >= 2 && (
         <Line points={trajectories.leader} color={BRAND.beige[100]} lineWidth={3.5} />
       )}
@@ -116,6 +119,18 @@ export function Scene() {
         />
       )}
 
+      {/* Multi-Run DTW Ghosts */}
+      {matchTrajectories.map((m, idx) => {
+        const ghostIdx = Math.min(currentFrame, m.coords.length - 1);
+        const ghostPos = m.coords[ghostIdx];
+        return (
+          <group key={idx}>
+            <Line points={m.coords} color={BRAND.orange[400]} lineWidth={1.5} opacity={0.35} transparent />
+            <GhostFollower position={ghostPos} label={m.name} onClick={() => setSelectedFile(m.filename)} />
+          </group>
+        );
+      })}
+
       {/* Leader Representation */}
       {useRawRig && rawSkeleton?.leader_markers ? (
         <ViconSkeletonMesh markers={rawSkeleton.leader_markers} currentFrame={currentFrame} />
@@ -131,7 +146,7 @@ export function Scene() {
         </Suspense>
       )}
 
-      {/* Accompanier */}
+      {/* Accompanier (FollowingAccompaniedLeader) */}
       {hasAccompanier && (
         <PedestrianMesh
           position={accompanierPos}
@@ -144,7 +159,7 @@ export function Scene() {
       {/* Obstacles (ObstacleNavigation, Cornering) */}
       {hasObstacle && <ObstacleMesh position={obstaclePos} />}
 
-      {/* Door Frame & Door Swing (Strictly Doors Study) */}
+      {/* Static Door Frame & Swinging Door Leaf (Doors study only) */}
       {isDoorStudy && (
         <DoorMesh
           doorMarkers={rawSkeleton?.door_markers}
@@ -153,19 +168,20 @@ export function Scene() {
         />
       )}
 
-      {/* ======================================================== */}
-      {/* FOLLOWER ENTITY (Robot vs. Physical Prop Cart/Wagon)     */}
-      {/* ======================================================== */}
+      {/* ============================================================= */}
+      {/* 1. FOLLOWER SLOT (Robot Gita vs. Follower Prop Cart/Wagon)    */}
+      {/* ============================================================= */}
       {hasFollower && (
         <>
-          {followerType === 'robot' ? (
-            /* Autonomous Robot Follower (Gita) */
+          {followerKind === 'robot' ? (
             <Suspense fallback={null}>
               <RobotFbxMesh position={followerPos} nextPosition={followerNext} />
             </Suspense>
           ) : (
-            /* Follower Prop (Cart / Wagon / Shelf taking the place of the robot) */
+            /* Follower Prop Cart / Wagon (takes the place of the robot) */
             <PhysicalPropMesh
+              position={followerPos}
+              nextPosition={followerNext}
               trajectory={trajectories.follower}
               markers={rawSkeleton?.prop_markers}
               currentFrame={currentFrame}
@@ -174,29 +190,46 @@ export function Scene() {
         </>
       )}
 
-      {/* ======================================================== */}
-      {/* SECONDARY PROP ENTITY (Prop Person in ReadingWall)      */}
-      {/* ======================================================== */}
-      {hasProp && isPropPerson && (
-        <group name="PropPerson">
-          <PedestrianMesh
-            position={propPedestrianPos}
-            nextPosition={propPedestrianNext}
-            color="#f59e0b" // Amber/Gold confederate
-            visorColor="#fbbf24"
-          />
-          {rawSkeleton?.prop_markers &&
-            Object.entries(rawSkeleton.prop_markers).map(([name, stream]) => {
-              const pt = stream[Math.min(currentFrame, stream.length - 1)];
-              if (!pt || (pt[0] === 0 && pt[1] === 0 && pt[2] === 0)) return null;
-              return (
-                <mesh key={`propperson-marker-${name}`} position={pt}>
-                  <sphereGeometry args={[0.015, 16, 16]} />
-                  <meshStandardMaterial color="#f59e0b" emissive="#d97706" emissiveIntensity={0.8} />
-                </mesh>
-              );
-            })}
-        </group>
+      {/* ============================================================= */}
+      {/* 2. PROP ENTITIES (Human Prop Person vs. Inanimate Object)    */}
+      {/* ============================================================= */}
+      {hasPropData && (
+        <>
+          {isPropPerson ? (
+            /* Human Prop Person (ReadingWallIntentions) -> PedestrianMesh */
+            <group name="PropPerson">
+              <PedestrianMesh
+                position={propPedestrianPos}
+                nextPosition={propPedestrianNext}
+                color="#f59e0b" // Amber / Gold Tone
+                visorColor="#fbbf24"
+              />
+              {/* Optical head markers for confederate human */}
+              {rawSkeleton?.prop_markers &&
+                Object.entries(rawSkeleton.prop_markers).map(([name, stream]) => {
+                  const pt = stream[Math.min(currentFrame, stream.length - 1)];
+                  if (!pt || (pt[0] === 0 && pt[1] === 0 && pt[2] === 0)) return null;
+                  return (
+                    <mesh key={`propperson-marker-${name}`} position={pt}>
+                      <sphereGeometry args={[0.016, 16, 16]} />
+                      <meshStandardMaterial color="#f59e0b" emissive="#d97706" emissiveIntensity={0.8} />
+                    </mesh>
+                  );
+                })}
+            </group>
+          ) : (
+            /* Inanimate Physical Prop (Shelf, Stroller in Doors study when not in follower slot) */
+            !hasFollower && (
+              <PhysicalPropMesh
+                position={rawPropPos}
+                nextPosition={rawPropNext}
+                trajectory={propTrajectory}
+                markers={rawSkeleton?.prop_markers}
+                currentFrame={currentFrame}
+              />
+            )
+          )}
+        </>
       )}
 
       {/* Camera Rig */}

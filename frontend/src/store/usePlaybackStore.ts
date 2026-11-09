@@ -288,13 +288,6 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
     }
   },
 
-  getIsDoorStudy: () => {
-    const { selectedFile, selectedStudy } = get();
-    const name = (selectedFile || '').toLowerCase();
-    const study = (selectedStudy || '').toLowerCase();
-    return study.includes('door') || name.includes('door');
-  },
-
   // In usePlaybackStore.ts:
   getFollowerType: (): 'robot' | 'physical_prop' | 'none' => {
     const { selectedFile, selectedStudy, trajectories } = get();
@@ -317,23 +310,52 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
     return 'robot';
   },
 
-  getIsPropPerson: (): boolean => {
-    const { selectedFile, selectedStudy, rawSkeleton, trajectories } = get();
+// In usePlaybackStore.ts:
+  getIsDoorStudy: () => {
+    const { selectedFile, selectedStudy } = get();
+    const name = (selectedFile || '').toLowerCase();
+    const study = (selectedStudy || '').toLowerCase();
+    return study.includes('door') || name.includes('door');
+  },
+
+  // Identifies whether the follower slot is an autonomous robot or a physical cart/wagon
+  getFollowerKind: (): 'robot' | 'physical_prop' | 'none' => {
+    const { selectedFile, selectedStudy, trajectories } = get();
+    if (!trajectories.follower || trajectories.follower.length === 0) return 'none';
     const name = (selectedFile || '').toLowerCase();
     const study = (selectedStudy || '').toLowerCase();
 
-    // Strictly check for the human prop person condition
-    if (name.includes('propperson') || name.includes('propalyssa')) return true;
-
-    // If marker names contain human markers for the prop
-    if (rawSkeleton?.prop_markers) {
-      const keys = Object.keys(rawSkeleton.prop_markers);
-      // PropPerson markers are typically M_1..M_5 or human head markers
-      if (keys.some((k) => k.toLowerCase().includes('prop') || k.toLowerCase().includes('head'))) {
-        return true;
-      }
+    // If the trial condition is a pulled/pushed cart, wagon, or shelf in follower slot
+    if (
+      name.includes('wagon') ||
+      name.includes('cart') ||
+      name.includes('shelf') ||
+      name.includes('stroller') ||
+      study.includes('doors')
+    ) {
+      return 'physical_prop';
     }
 
+    // Default for robot studies (Cornering, Overtaking, ContactlessPushing, etc.)
+    return 'robot';
+  },
+
+  // Identifies whether the secondary prop is a human confederate (ReadingWall) vs physical object
+  getIsPropPerson: (): boolean => {
+    const { selectedFile, selectedStudy, rawSkeleton } = get();
+    const name = (selectedFile || '').toLowerCase();
+    const study = (selectedStudy || '').toLowerCase();
+
+    if (name.includes('propperson') || name.includes('propalyssa')) return true;
+    if (study.includes('readingwall') || name.includes('readingwall')) {
+      // In reading wall, if raw markers exist and contain 'prop' or human head markers
+      if (rawSkeleton?.prop_markers) {
+        return Object.keys(rawSkeleton.prop_markers).some(
+          (k) => k.toLowerCase().includes('prop') || k.toLowerCase().startsWith('m_')
+        );
+      }
+      return name.includes('prop');
+    }
     return false;
   },
 
