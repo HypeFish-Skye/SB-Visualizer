@@ -3,7 +3,7 @@ import { useLoader } from '@react-three/fiber';
 import { FBXLoader } from 'three-stdlib';
 import * as THREE from 'three';
 import { BRAND } from '../../theme/brand.js';
-import { Vec3Tuple } from '../../types/types.js';
+import { Vec3Tuple } from '../../types/mocap.js';
 import { computeHeading } from '../../utils/mocapMath.js';
 
 interface RobotFbxMeshProps {

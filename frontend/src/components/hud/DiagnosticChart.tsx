@@ -28,7 +28,8 @@ export function DiagnosticChart() {
     return dataArr
       .map((val, idx) => {
         const x = (idx / (len - 1)) * 100;
-        const y = height - (Math.min(val, maxVal) / maxVal) * (height - 8) - 4;
+        const clamped = Math.max(0, Math.min(val, maxVal));
+        const y = height - (clamped / maxVal) * (height - 8) - 4;
         return `${x.toFixed(2)},${y.toFixed(2)}`;
       })
       .join(' ');
@@ -38,6 +39,10 @@ export function DiagnosticChart() {
   const speedPointsFollower = useMemo(() => createPolyline(telemetry?.follower_speed, 2.5, 55), [telemetry]);
   const sepPoints = useMemo(() => createPolyline(telemetry?.separation, 3.5, 55), [telemetry]);
   const curvPoints = useMemo(() => createPolyline(telemetry?.follower_curvature, 2.0, 55), [telemetry]);
+  
+  // New Commitment (0.0 to 1.0) and Hand Lift (0.0 to 0.5m) series
+  const commitPoints = useMemo(() => createPolyline(telemetry?.commitment, 1.0, 55), [telemetry]);
+  const handLiftPoints = useMemo(() => createPolyline(telemetry?.hand_lift, 0.5, 55), [telemetry]);
 
   const cursorX = totalFrames > 1 ? ((currentFrame / (totalFrames - 1)) * 100).toFixed(2) : '0';
 
@@ -62,7 +67,7 @@ export function DiagnosticChart() {
       onPointerLeave={() => (isDragging.current = false)}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: collapsed ? 0 : 8 }}>
-        <div style={{ display: 'flex', gap: 16, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+        <div style={{ display: 'flex', gap: 14, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.8px', flexWrap: 'wrap' }}>
           <span style={{ color: BRAND.grey[400], fontWeight: 700 }}>Telemetry</span>
           {!collapsed && (
             <>
@@ -70,6 +75,8 @@ export function DiagnosticChart() {
               <span style={{ color: BRAND.cerulean[400] }}>— Robot Speed</span>
               <span style={{ color: BRAND.orange[400] }}>— Separation</span>
               <span style={{ color: BRAND.grape[400] }}>— Curvature</span>
+              {telemetry?.commitment && <span style={{ color: '#2dd4bf', fontWeight: 600 }}>— Commitment</span>}
+              {telemetry?.hand_lift && <span style={{ color: '#fbbf24', fontWeight: 600 }}>— Hand Lift</span>}
             </>
           )}
         </div>
@@ -124,6 +131,8 @@ export function DiagnosticChart() {
               {curvPoints && <polyline fill="none" stroke={BRAND.grape[400]} strokeWidth="1.3" opacity="0.9" points={curvPoints} />}
               {speedPointsLeader && <polyline fill="none" stroke={BRAND.beige[200]} strokeWidth="1.2" opacity="0.75" points={speedPointsLeader} />}
               {speedPointsFollower && <polyline fill="none" stroke={BRAND.cerulean[400]} strokeWidth="1.6" points={speedPointsFollower} />}
+              {commitPoints && <polyline fill="none" stroke="#2dd4bf" strokeWidth="1.5" opacity="0.9" points={commitPoints} />}
+              {handLiftPoints && <polyline fill="none" stroke="#fbbf24" strokeWidth="1.5" opacity="0.9" points={handLiftPoints} />}
             </>
           )}
           <line

@@ -6,6 +6,7 @@ import {
   DTWOverlayData,
   HeatmapMode,
   OvertakingConfig,
+  RawSkeletonData,
   TelemetryData,
   Trajectories,
   TrajectoryResponse,
@@ -22,6 +23,8 @@ interface PlaybackState {
   selectedFile: string;
   loading: boolean;
   searching: boolean;
+  rawSkeleton: RawSkeletonData | null;
+  useRawRig: boolean,
 
   // Active Trajectories & Kinematics
   trajectories: Trajectories;
@@ -41,6 +44,7 @@ interface PlaybackState {
   // Derived Helpers
   getCornerAngle: () => CornerAngle | null;
   getOvertakingConfig: () => OvertakingConfig | null;
+  getIsReadingWall: () => boolean; // <-- Add this
   getTotalFrames: () => number;
 
   // Synchronous State Modifiers
@@ -50,6 +54,8 @@ interface PlaybackState {
   setHeatmapMode: (mode: HeatmapMode) => void;
   setCurrentFrame: (frame: number | ((prev: number) => number)) => void;
   setIsPlaying: (isPlaying: boolean) => void;
+  setUseRawRig: (useRawRig: boolean) => void;
+
   togglePlay: () => void;
   stepFrame: () => void;
 
@@ -68,6 +74,8 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
   selectedFile: '',
   loading: false,
   searching: false,
+  rawSkeleton: null,
+  useRawRig: false,
 
   trajectories: { leader: [], follower: [], accompanier: [], obstacle: [] },
   telemetry: null,
@@ -112,6 +120,13 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
     const side: OvertakingConfig['side'] = name.includes('left') ? 'right' : 'left';
 
     return { corridorWidth, isNarrow, side };
+  },
+
+  getIsReadingWall: () => {
+    const { selectedFile, selectedStudy } = get();
+    const name = (selectedFile || '').toLowerCase();
+    const study = (selectedStudy || '').toLowerCase();
+    return study.includes('readingwall') || name.includes('readingwall');
   },
 
   // Update getTotalFrames to check every agent array
@@ -165,9 +180,9 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
 
   setCameraMode: (mode) => set({ cameraMode: mode }),
   setHeatmapMode: (mode) => set({ heatmapMode: mode }),
-
+  setUseRawRig: (useRawRig) => set({ useRawRig }),
   setIsPlaying: (isPlaying) => set({ isPlaying }),
-
+ 
   togglePlay: () => set((state) => ({ isPlaying: !state.isPlaying })),
 
   // Async Network Operations
@@ -225,8 +240,10 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
           follower: data.follower || [],
           accompanier: data.accompanier || [],
           obstacle: data.obstacle || [],
+          prop: data.prop_trajectory || [],
         },
         telemetry: data.telemetry,
+        rawSkeleton: data.raw_skeleton || null,
         currentFrame: 0,
         loading: false,
       });

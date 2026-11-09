@@ -1,18 +1,27 @@
 import { ContactShadows, Grid, Line } from '@react-three/drei';
 import { BRAND } from '../../theme/brand.js';
-import { CornerAngle, OvertakingConfig } from '../../types/types.js';
+import { CornerAngle, OvertakingConfig, WallPlaneData } from '../../types/types.js';
 import { CornerWall } from '../studies/CornerWall.js';
 import { CorridorTable } from '../studies/CorridorTable.js';
 import { SeeThroughShelves } from '../studies/SeeThroughShelves.js';
+import { WallPlaneMesh } from '../studies/WallPlane.js';
 import { MocapTrussRig } from './MocapTrussRig.js';
 
 interface LabArenaProps {
   size?: number;
   cornerAngle?: CornerAngle | null;
   overtakingConfig?: OvertakingConfig | null;
+  wallPlane?: WallPlaneData | null;
+  isReadingWall?: boolean;
 }
 
-export function LabArena({ size = 20, cornerAngle = null, overtakingConfig = null }: LabArenaProps) {
+export function LabArena({
+  size = 20,
+  cornerAngle = null,
+  overtakingConfig = null,
+  wallPlane = null,
+  isReadingWall = false,
+}: LabArenaProps) {
   const half = size / 2;
 
   return (
@@ -76,6 +85,11 @@ export function LabArena({ size = 20, cornerAngle = null, overtakingConfig = nul
             />
           )}
         </group>
+      )}
+
+      {/* 8. Static Reading Wall (ReadingWallIntentions Study) */}
+      {(isReadingWall || wallPlane) && (
+        <WallPlaneMesh wall={wallPlane} width={3.0} />
       )}
     </group>
   );

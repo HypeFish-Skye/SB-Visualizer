@@ -10,27 +10,42 @@ export const PropPersonOrb: React.FC<PropPersonOrbProps> = ({
   propTrajectory,
   currentFrame,
 }) => {
-  const pos = propTrajectory[Math.min(currentFrame, propTrajectory.length - 1)];
+  // Find first valid non-zero anchor as a fallback
+  const firstValid = useMemo(() => {
+    return propTrajectory.find((p) => p && (p[0] !== 0 || p[2] !== 0)) || [0, 1.6, 0];
+  }, [propTrajectory]);
+
+  const rawPos = propTrajectory[Math.min(currentFrame, propTrajectory.length - 1)];
+  const isPosValid = rawPos && (rawPos[0] !== 0 || rawPos[2] !== 0);
+  const pos = isPosValid ? rawPos : firstValid;
 
   // Breadcrumb trajectory path for the prop person
-  const pathGeometry = useMemo(() => {
-    const points = propTrajectory.map((p) => new THREE.Vector3(p[0], 0.03, p[2]));
-    return new THREE.BufferGeometry().setFromPoints(points);
-  }, [propTrajectory]);
   const pathLine = useMemo(() => {
-    const line = new THREE.Line(pathGeometry);
+    const validPoints = propTrajectory
+      .filter((p) => p && (p[0] !== 0 || p[2] !== 0))
+      .map((p) => new THREE.Vector3(p[0], 0.03, p[2]));
+
+    if (validPoints.length < 2) return null;
+
+    const geom = new THREE.BufferGeometry().setFromPoints(validPoints);
+    const line = new THREE.Line(geom);
     line.computeLineDistances();
     return line;
-  }, [pathGeometry]);
+  }, [propTrajectory]);
 
-  if (!pos || (pos[0] === 0 && pos[1] === 0 && pos[2] === 0)) return null;
+  if (!pos) return null;
+
+  const [x, y, z] = pos;
+  const clampedY = y > 0.3 ? y : 1.60;
 
   return (
-    <group>
+    <group name="PropPerson">
       {/* Ground Projection Trail */}
-      <primitive object={pathLine}>
-        <lineDashedMaterial attach="material" color="#f59e0b" dashSize={0.2} gapSize={0.1} />
-      </primitive>
+      {pathLine && (
+        <primitive object={pathLine}>
+          <lineDashedMaterial attach="material" color="#f59e0b" dashSize={0.25} gapSize={0.15} />
+        </primitive>
+      )}
 
       {/* Vertical Reference Guide to Floor */}
       <line>
@@ -38,22 +53,22 @@ export const PropPersonOrb: React.FC<PropPersonOrbProps> = ({
           attach="geometry"
           onUpdate={(geom) => {
             geom.setFromPoints([
-              new THREE.Vector3(pos[0], 0, pos[2]),
-              new THREE.Vector3(pos[0], pos[1], pos[2]),
+              new THREE.Vector3(x, 0.02, z),
+              new THREE.Vector3(x, clampedY, z),
             ]);
           }}
         />
-        <lineBasicMaterial color="#d97706" opacity={0.5} transparent />
+        <lineBasicMaterial color="#d97706" opacity={0.4} transparent />
       </line>
 
       {/* Ground Drop Ring */}
-      <mesh position={[pos[0], 0.02, pos[2]]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[0.18, 0.22, 32]} />
-        <meshBasicMaterial color="#f59e0b" opacity={0.6} transparent />
+      <mesh position={[x, 0.02, z]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.18, 0.24, 32]} />
+        <meshBasicMaterial color="#f59e0b" opacity={0.65} transparent side={THREE.DoubleSide} />
       </mesh>
 
       {/* Floating Orb */}
-      <mesh position={[pos[0], pos[1], pos[2]]}>
+      <mesh position={[x, clampedY, z]} castShadow>
         <sphereGeometry args={[0.16, 32, 32]} />
         <meshStandardMaterial
           color="#fbbf24"

@@ -10,6 +10,16 @@ export function TelemetryHud() {
   const curSep = telemetry?.separation?.[currentFrame]?.toFixed(2) ?? '0.00';
   const curCurv = telemetry?.follower_curvature?.[currentFrame]?.toFixed(2) ?? '0.00';
 
+  const curCommitment =
+    telemetry?.commitment?.[currentFrame] !== undefined
+      ? (telemetry.commitment[currentFrame] * 100).toFixed(0) + '%'
+      : null;
+
+  const curHandLift =
+    telemetry?.hand_lift?.[currentFrame] !== undefined
+      ? (telemetry.hand_lift[currentFrame] * 100).toFixed(1) + ' cm'
+      : null;
+
   return (
     <div
       style={{
@@ -23,7 +33,7 @@ export function TelemetryHud() {
         border: `1px solid ${BRAND.navy[500]}`,
         backdropFilter: 'blur(10px)',
         boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
-        width: '220px',
+        width: '240px',
         color: BRAND.beige[100],
       }}
     >
@@ -42,10 +52,26 @@ export function TelemetryHud() {
         <span style={{ fontSize: '0.8rem', color: BRAND.grey[300] }}>Leader Speed</span>
         <span style={{ fontSize: '0.9rem', fontWeight: 700, color: BRAND.beige[100] }}>{curLeadSpeed} m/s</span>
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: curCommitment ? 8 : 0 }}>
         <span style={{ fontSize: '0.8rem', color: BRAND.grey[300] }}>Curvature (κ)</span>
         <span style={{ fontSize: '0.9rem', fontWeight: 700, color: BRAND.grape[400] }}>{curCurv} m⁻¹</span>
       </div>
+
+      {/* Wall Approach Commitment Metric */}
+      {curCommitment !== null && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: curHandLift ? 8 : 0, borderTop: `1px solid ${BRAND.navy[600]}`, paddingTop: 8 }}>
+          <span style={{ fontSize: '0.8rem', color: BRAND.grey[300] }}>Commitment</span>
+          <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#2dd4bf' }}>{curCommitment}</span>
+        </div>
+      )}
+
+      {/* Hand Lift Height Above Baseline */}
+      {curHandLift !== null && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: curCommitment ? 0 : 8, borderTop: curCommitment ? 'none' : `1px solid ${BRAND.navy[600]}` }}>
+          <span style={{ fontSize: '0.8rem', color: BRAND.grey[300] }}>Hand Lift</span>
+          <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#fbbf24' }}>{curHandLift}</span>
+        </div>
+      )}
     </div>
   );
 }

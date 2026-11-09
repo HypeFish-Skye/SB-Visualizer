@@ -7,11 +7,18 @@ export type CorridorWidth = 'thin' | 'medium' | 'wide';
 export type TableSide = 'left' | 'right';
 export type CornerAngle = 45 | 90 | 135;
 
+export interface RawSkeletonData {
+  leader_markers?: Record<string, [number, number, number][]>;
+  prop_markers?: Record<string, [number, number, number][]>;
+}
+
 export interface TelemetryData {
   leader_speed: number[];
   follower_speed: number[];
   separation: number[];
   follower_curvature: number[];
+  commitment?: number[];
+  hand_lift?: number[];
 }
 
 export interface Trajectories {
@@ -19,6 +26,8 @@ export interface Trajectories {
   follower: Vec3Tuple[];
   accompanier: Vec3Tuple[];
   obstacle: Vec3Tuple[];
+  prop?: Vec3Tuple[];
+  rawSkeleton?: RawSkeletonData;
 }
 
 export interface TrajectoryResponse {
@@ -26,7 +35,10 @@ export interface TrajectoryResponse {
   follower: Vec3Tuple[];
   accompanier?: Vec3Tuple[];
   obstacle?: Vec3Tuple[];
+  prop_trajectory?: Vec3Tuple[];
+  wall_plane?: WallPlaneData;
   telemetry: TelemetryData;
+  raw_skeleton?: RawSkeletonData;
 }
 
 export interface TrialMetadata {

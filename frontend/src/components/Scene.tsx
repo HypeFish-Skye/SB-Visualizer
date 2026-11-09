@@ -5,41 +5,50 @@ import { getHeatmapColor } from '../utils/mocapMath.js';
 import { usePlaybackStore } from '../store/usePlaybackStore.js';
 import { LabArena } from './scene/LabArena.js';
 import { PedestrianMesh } from './agents/PedestrianMesh.js';
+import { HumanFbxMesh } from './agents/HumanFbxMesh.js'; // <-- Import new component
 import { ObstacleMesh } from './agents/ObstacleMesh.js';
 import { RobotFbxMesh } from './agents/RobotFbxMesh.js';
 import { GhostFollower } from './agents/GhostFollower.js';
 import { CameraRig } from './camera/CameraRig.js';
-import { WallPlaneMesh } from './studies/WallPlaneMesh.js';
 import { PropPersonOrb } from './agents/PropPersonOrb.js';
-import { TrajectoryData } from '../types/types.js';
+import { ViconSkeletonMesh } from './agents/ViconSkeletonMesh.js';
 
 export function Scene() {
   const currentFrame = usePlaybackStore((s) => s.currentFrame);
   const trajectories = usePlaybackStore((s) => s.trajectories);
+  const wallPlane = usePlaybackStore((s) => s.wallPlane);
   const matchTrajectories = usePlaybackStore((s) => s.matchTrajectories);
   const cameraMode = usePlaybackStore((s) => s.cameraMode);
   const heatmapMode = usePlaybackStore((s) => s.heatmapMode);
   const telemetry = usePlaybackStore((s) => s.telemetry);
+  const useRawRig = usePlaybackStore((s) => s.useRawRig);
+  const rawSkeleton = usePlaybackStore((s) => s.rawSkeleton);
   const setSelectedFile = usePlaybackStore((s) => s.setSelectedFile);
   const getCornerAngle = usePlaybackStore((s) => s.getCornerAngle);
   const getOvertakingConfig = usePlaybackStore((s) => s.getOvertakingConfig);
+  const getIsReadingWall = usePlaybackStore((s) => s.getIsReadingWall);
 
   const cornerAngle = getCornerAngle();
   const overtakingConfig = getOvertakingConfig();
+  const isReadingWall = getIsReadingWall();
 
   const nextFrame = currentFrame + 1;
   const leaderPos = trajectories.leader[currentFrame] || trajectories.leader[0];
   const leaderNext = trajectories.leader[nextFrame] || leaderPos;
+  const leaderSpeed = telemetry?.leader_speed?.[currentFrame] ?? 0;
 
-  const followerPos = trajectories.follower[currentFrame] || trajectories.follower[0];
-  const followerNext = trajectories.follower[nextFrame] || followerPos;
+  const hasFollower = (trajectories.follower?.length ?? 0) > 0;
+  const followerPos = hasFollower ? (trajectories.follower[currentFrame] || trajectories.follower[0]) : undefined;
+  const followerNext = hasFollower ? (trajectories.follower[nextFrame] || followerPos) : undefined;
 
-  const hasAccompanier = trajectories.accompanier?.length > 0;
+  const hasAccompanier = (trajectories.accompanier?.length ?? 0) > 0;
   const accompanierPos = hasAccompanier ? (trajectories.accompanier[currentFrame] || trajectories.accompanier[0]) : undefined;
   const accompanierNext = hasAccompanier ? (trajectories.accompanier[nextFrame] || accompanierPos) : undefined;
 
-  const hasObstacle = trajectories.obstacle?.length > 0;
+  const hasObstacle = (trajectories.obstacle?.length ?? 0) > 0;
   const obstaclePos = hasObstacle ? (trajectories.obstacle[currentFrame] || trajectories.obstacle[0]) : undefined;
+
+  const hasProp = (trajectories.prop?.length ?? 0) > 0;
 
   const followerColors = useMemo(() => {
     if (heatmapMode === 'none' || !telemetry || trajectories.follower.length === 0) return null;
@@ -59,9 +68,16 @@ export function Scene() {
       <directionalLight position={[10, 16, 8]} intensity={1.2} castShadow shadow-mapSize={[1024, 1024]} />
       <directionalLight position={[-10, 12, -10]} intensity={0.35} color={BRAND.cerulean[200]} />
 
-      <LabArena size={22} cornerAngle={cornerAngle} overtakingConfig={overtakingConfig} />
+      {/* Lab Environment */}
+      <LabArena
+        size={22}
+        cornerAngle={cornerAngle}
+        overtakingConfig={overtakingConfig}
+        wallPlane={wallPlane}
+        isReadingWall={isReadingWall}
+      />
 
-      {/* Ensure at least 2 points exist before mounting Drei Line */}
+      {/* Trajectory Lines */}
       {trajectories.leader.length >= 2 && (
         <Line points={trajectories.leader} color={BRAND.beige[100]} lineWidth={3.5} />
       )}
@@ -83,6 +99,7 @@ export function Scene() {
         />
       )}
 
+      {/* Multi-Run DTW Ghosts */}
       {matchTrajectories.map((m, idx) => {
         const ghostIdx = Math.min(currentFrame, m.coords.length - 1);
         const ghostPos = m.coords[ghostIdx];
@@ -94,15 +111,59 @@ export function Scene() {
         );
       })}
 
-      <PedestrianMesh position={leaderPos} nextPosition={leaderNext} color={BRAND.beige[100]} visorColor={BRAND.cerulean[400]} />
-      {hasAccompanier && <PedestrianMesh position={accompanierPos} nextPosition={accompanierNext} color={BRAND.grape[400]} visorColor={BRAND.grape[200]} />}
+  {/* Human Leader Representation */}
+  {useRawRig && rawSkeleton?.leader_markers ? (
+    <ViconSkeletonMesh
+      markers={rawSkeleton.leader_markers}
+      currentFrame={currentFrame}
+    />
+  ) : (
+    <Suspense fallback={<PedestrianMesh position={leaderPos} nextPosition={leaderNext} />}>
+      <HumanFbxMesh
+        position={leaderPos}
+        nextPosition={leaderNext}
+        trajectory={trajectories.leader}
+        currentFrame={currentFrame}
+        speed={leaderSpeed}
+      />
+    </Suspense>
+  )}
+
+      {/* Accompanier Agent */}
+      {hasAccompanier && (
+        <PedestrianMesh
+          position={accompanierPos}
+          nextPosition={accompanierNext}
+          color={BRAND.grape[400]}
+          visorColor={BRAND.grape[200]}
+        />
+      )}
+
+      {/* Obstacles & Props */}
       {hasObstacle && <ObstacleMesh position={obstaclePos} />}
 
+      {/* Prop Person Orb with Cluster Markers */}
+      {hasProp && (
+        <PropPersonOrb
+          propTrajectory={trajectories.prop!}
+          propMarkers={rawSkeleton?.prop_markers}
+          currentFrame={currentFrame}
+        />
+      )}
+
+      {/* Robot Agent */}
       <Suspense fallback={null}>
         <RobotFbxMesh position={followerPos} nextPosition={followerNext} />
       </Suspense>
 
-      <CameraRig mode={cameraMode} targetPos={followerPos} nextPos={followerNext} leaderPos={leaderPos} />
+      {/* Camera Rig (Leader fallback when no follower) */}
+      <CameraRig
+        mode={cameraMode}
+        targetPos={followerPos}
+        nextPos={followerNext}
+        leaderPos={leaderPos}
+        leaderNext={leaderNext}
+      />
     </>
   );
 }

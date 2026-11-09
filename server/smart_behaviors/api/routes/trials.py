@@ -24,14 +24,13 @@ def get_trials(
     """Retrieves metadata for trials matching the requested study."""
     return CatalogService.list_trials(db, study_filter=study)
 
-
 @router.get("/trajectory", response_model=TrajectoryResponse)
 def get_trajectory(
     file_path: str = Query(..., description="S3 or local Parquet file path"),
+    include_raw: bool = Query(False, description="Load 53-marker skeletal rig from raw S3 dataset"),
     db: duckdb.DuckDBPyConnection = Depends(get_db),
 ):
-    """Loads 3D coordinates and computed kinematic telemetry for a trial."""
     try:
-        return TrajectoryLoader.load_trajectory(db, file_path)
+        return TrajectoryLoader.load_trajectory(db, file_path, include_raw=include_raw)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Failed to load trajectory dataset: {str(e)}")
+        raise HTTPException(status_code=404, detail=f"Failed to load trajectory: {str(e)}")

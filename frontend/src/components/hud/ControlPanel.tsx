@@ -1,5 +1,7 @@
+import { useState, useMemo } from 'react';
 import { BRAND } from '../../theme/brand.js';
 import { usePlaybackStore } from '../../store/usePlaybackStore.js';
+import { formatStudyName, parseTrialMetadata } from '../../utils/formatters.js';
 
 export function ControlPanel() {
   const studies = usePlaybackStore((s) => s.studies);
@@ -29,6 +31,51 @@ export function ControlPanel() {
   const hasObstacle = usePlaybackStore((s) => s.trajectories.obstacle.length > 0);
   const hasMatches = usePlaybackStore((s) => s.matchTrajectories.length > 0);
 
+
+  const isReadingWall = usePlaybackStore((s) => s.getIsReadingWall());
+  const useRawRig = usePlaybackStore((s) => s.useRawRig);
+  const setUseRawRig = usePlaybackStore((s) => s.setUseRawRig);
+  const hasRawSkeleton = !!usePlaybackStore((s) => s.rawSkeleton?.leader_markers);
+
+  // Local state for instant trial filtering
+  const [trialFilter, setTrialFilter] = useState('');
+
+  // Parse all trials for instant search & display
+  const parsedTrials = useMemo(() => {
+    return trials.map((t) => ({
+      ...t,
+      info: parseTrialMetadata(t.filename),
+    }));
+  }, [trials]);
+
+  // Filtered trials based on search input
+  const filteredTrials = useMemo(() => {
+    if (!trialFilter.trim()) return parsedTrials;
+    const q = trialFilter.toLowerCase();
+    return parsedTrials.filter(
+      (t) =>
+        t.info.fullLabel.toLowerCase().includes(q) ||
+        t.filename.toLowerCase().includes(q)
+    );
+  }, [parsedTrials, trialFilter]);
+
+  // Group trials by participant subject
+  const groupedTrials = useMemo(() => {
+    const groups: Record<string, typeof filteredTrials> = {};
+    for (const t of filteredTrials) {
+      const key = t.info.subject || 'Other';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(t);
+    }
+    return groups;
+  }, [filteredTrials]);
+
+  // Active trial parsed details
+  const activeTrialInfo = useMemo(() => {
+    if (!selectedFile) return null;
+    return parseTrialMetadata(selectedFile);
+  }, [selectedFile]);
+
   const cameraButtons = [
     { id: 'orbit', label: 'Orbit' },
     { id: 'chase', label: 'Chase' },
@@ -49,11 +96,11 @@ export function ControlPanel() {
         top: 24,
         left: 24,
         zIndex: 10,
-        background: 'rgba(3, 12, 22, 0.88)',
+        background: 'rgba(3, 12, 22, 0.90)',
         padding: '20px',
         borderRadius: '10px',
         color: BRAND.beige[100],
-        width: '310px',
+        width: '325px',
         border: `1px solid ${BRAND.navy[500]}`,
         backdropFilter: 'blur(10px)',
         boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
@@ -70,14 +117,22 @@ export function ControlPanel() {
         )}
       </div>
 
-      {/* Study Selector */}
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ fontSize: '0.72rem', color: BRAND.grey[300], textTransform: 'uppercase', letterSpacing: '1px' }}>
-          Study / Scenario
-        </label>
+      {/* 1. Study / Scenario Selector with Spaced Names */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <label style={{ fontSize: '0.72rem', color: BRAND.grey[300], textTransform: 'uppercase', letterSpacing: '1px' }}>
+            Study / Scenario
+          </label>
+          <span style={{ fontSize: '0.68rem', color: BRAND.cerulean[300] }}>
+            {studies.length} available
+          </span>
+        </div>
         <select
           value={selectedStudy}
-          onChange={(e) => setSelectedStudy(e.target.value)}
+          onChange={(e) => {
+            setSelectedStudy(e.target.value);
+            setTrialFilter(''); // Reset trial filter on study change
+          }}
           style={{
             width: '100%',
             padding: '8px 10px',
@@ -85,23 +140,52 @@ export function ControlPanel() {
             color: BRAND.cerulean[300],
             border: `1px solid ${BRAND.navy[400]}`,
             borderRadius: '6px',
-            marginTop: 4,
-            fontSize: '0.8rem',
+            marginTop: 5,
+            fontSize: '0.82rem',
             fontWeight: 600,
             outline: 'none',
+            cursor: 'pointer',
           }}
         >
           {studies.map((s, idx) => (
-            <option key={idx} value={s}>{s}</option>
+            <option key={idx} value={s}>
+              {formatStudyName(s)}
+            </option>
           ))}
         </select>
       </div>
 
-      {/* Dataset Trial Selector */}
-      <div style={{ marginBottom: 14 }}>
-        <label style={{ fontSize: '0.72rem', color: BRAND.grey[300], textTransform: 'uppercase', letterSpacing: '1px' }}>
-          Dataset Trial
-        </label>
+      {/* 2. Dataset Trial Selector with Optgroups & Search */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
+          <label style={{ fontSize: '0.72rem', color: BRAND.grey[300], textTransform: 'uppercase', letterSpacing: '1px' }}>
+            Dataset Trial
+          </label>
+          <span style={{ fontSize: '0.68rem', color: BRAND.grey[400] }}>
+            {filteredTrials.length} of {trials.length}
+          </span>
+        </div>
+
+        {/* Quick Filter Search Bar */}
+        <input
+          type="text"
+          value={trialFilter}
+          onChange={(e) => setTrialFilter(e.target.value)}
+          placeholder="🔍 Filter (e.g. Ben, 90, Cart, Left)..."
+          style={{
+            width: '100%',
+            boxSizing: 'border-box',
+            padding: '6px 10px',
+            background: 'rgba(7, 26, 46, 0.7)',
+            color: BRAND.beige[100],
+            border: `1px solid ${BRAND.navy[400]}`,
+            borderRadius: '5px 5px 0 0',
+            fontSize: '0.75rem',
+            outline: 'none',
+          }}
+        />
+
+        {/* Grouped Select Dropdown */}
         <select
           value={selectedFile}
           onChange={(e) => setSelectedFile(e.target.value)}
@@ -111,23 +195,117 @@ export function ControlPanel() {
             background: BRAND.navy[600],
             color: BRAND.beige[100],
             border: `1px solid ${BRAND.navy[400]}`,
-            borderRadius: '6px',
-            marginTop: 4,
+            borderTop: 'none',
+            borderRadius: '0 0 6px 6px',
             fontSize: '0.8rem',
             outline: 'none',
+            cursor: 'pointer',
           }}
         >
-          {trials.length === 0 ? (
-            <option value="">No trials found</option>
+          {filteredTrials.length === 0 ? (
+            <option value="">No matching trials</option>
           ) : (
-            trials.map((t, idx) => (
-              <option key={idx} value={t.filename}>
-                {t.filename.split('/').pop()}
-              </option>
+            Object.entries(groupedTrials).map(([subject, subTrials]) => (
+              <optgroup key={subject} label={`${subject} (${subTrials.length})`}>
+                {subTrials.map((t) => (
+                  <option key={t.filename} value={t.filename}>
+                    {t.info.description}
+                  </option>
+                ))}
+              </optgroup>
             ))
           )}
         </select>
+
+        {/* Active Trial Parameter Badges */}
+        {activeTrialInfo && (
+          <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            <span
+              style={{
+                fontSize: '0.68rem',
+                padding: '2px 7px',
+                borderRadius: '4px',
+                background: BRAND.navy[500],
+                color: BRAND.cerulean[200],
+                fontWeight: 600,
+              }}
+            >
+              👤 {activeTrialInfo.subject}
+            </span>
+            {activeTrialInfo.tags.map((tag, i) => (
+              <span
+                key={i}
+                style={{
+                  fontSize: '0.68rem',
+                  padding: '2px 7px',
+                  borderRadius: '4px',
+                  background: 'rgba(255,255,255,0.08)',
+                  color: BRAND.grey[200],
+                }}
+              >
+                {tag}
+              </span>
+            ))}
+            {activeTrialInfo.run && (
+              <span
+                style={{
+                  fontSize: '0.68rem',
+                  padding: '2px 7px',
+                  borderRadius: '4px',
+                  background: 'rgba(245, 158, 11, 0.15)',
+                  color: '#fbbf24',
+                  fontWeight: 600,
+                }}
+              >
+                {activeTrialInfo.run}
+              </span>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* MoCap Skeletal Rig Selector Card (Available for Reading Wall Trials) */}
+  {isReadingWall && hasRawSkeleton && (
+    <div style={{ marginBottom: 14, background: 'rgba(56, 189, 248, 0.08)', padding: '10px', borderRadius: '6px', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: '0.72rem', color: BRAND.cerulean[300], fontWeight: 700, textTransform: 'uppercase' }}>
+          Human Representation
+        </span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
+        <button
+          onClick={() => setUseRawRig(false)}
+          style={{
+            background: !useRawRig ? BRAND.cerulean[500] : BRAND.navy[600],
+            color: !useRawRig ? BRAND.navy[700] : BRAND.grey[200],
+            border: 'none',
+            padding: '5px 0',
+            borderRadius: '4px',
+            fontSize: '0.7rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          FBX Character
+        </button>
+        <button
+          onClick={() => setUseRawRig(true)}
+          style={{
+            background: useRawRig ? BRAND.cerulean[500] : BRAND.navy[600],
+            color: useRawRig ? BRAND.navy[700] : BRAND.grey[200],
+            border: 'none',
+            padding: '5px 0',
+            borderRadius: '4px',
+            fontSize: '0.7rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          Vicon MoCap Rig
+        </button>
+      </div>
+    </div>
+  )}
 
       {/* Camera Rig Toggle */}
       <div style={{ marginBottom: 14 }}>
@@ -251,7 +429,7 @@ export function ControlPanel() {
                 }}
               >
                 <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '170px' }}>
-                  {m.name}
+                  {parseTrialMetadata(m.filename).fullLabel}
                 </span>
                 <span style={{ color: BRAND.orange[400], fontWeight: 700 }}>
                   {m.dtw_distance.toFixed(1)}

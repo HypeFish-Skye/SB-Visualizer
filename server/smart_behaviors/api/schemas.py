@@ -3,6 +3,14 @@ from pydantic import BaseModel, Field
 
 Vec3 = Tuple[float, float, float]
 
+class RawSkeletonData(BaseModel):
+    # marker_name -> [(x, y, z), ...] per frame in meters (Three.js coords)
+    leader_markers: Optional[dict[str, list[list[float]]]] = Field(
+        None, description="Per-frame 3D coordinates for each human marker"
+    )
+    prop_markers: Optional[dict[str, list[list[float]]]] = Field(
+        None, description="Per-frame 3D coordinates for prop person markers (M_1..M_5)"
+    )
 
 class WallPlane(BaseModel):
     center: List[float]       # [x, y, z] center of the wall
@@ -16,6 +24,8 @@ class TelemetryData(BaseModel):
     follower_speed: List[float] = Field(..., description="Robot linear velocity in m/s")
     separation: List[float] = Field(..., description="Inter-agent Euclidean distance in meters")
     follower_curvature: List[float] = Field(..., description="Robot curvature in 1/m")
+    commitment: Optional[List[float]] = Field(None, description="Wall approach commitment metric (0.0 to 1.0)")
+    hand_lift: Optional[List[float]] = Field(None, description="Hand lift height above baseline in meters")
 
 
 class TrajectoryResponse(BaseModel):
@@ -24,8 +34,8 @@ class TrajectoryResponse(BaseModel):
     accompanier: List[Vec3] = Field(default_factory=list)
     obstacle: List[Vec3] = Field(default_factory=list)
     telemetry: TelemetryData
-    wall_plane: Optional[WallPlane] = None
     prop_trajectory: Optional[List[List[float]]] = None
+    raw_skeleton: Optional[RawSkeletonData] = None  
 
 class TrialMetadata(BaseModel):
     filename: str
