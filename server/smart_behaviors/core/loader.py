@@ -124,7 +124,7 @@ class TrajectoryLoader:
 
                 # Fill any transient gaps across frames
                 clean_df = pd.DataFrame(centroid).interpolate(limit=60).bfill().ffill().fillna(0.0)
-                clean_arr = clean_df.to_numpy()
+                clean_arr = clean_df.to_numpy().copy()
 
                 # If height collapsed due to all-missing markers, default to standard standing elevation
                 valid_y = clean_arr[:, 1] > 0.5
@@ -489,7 +489,7 @@ class TrajectoryLoader:
         # -------------------------------------------------------------
         n = max(len(leader_coords), len(follower_coords), len(accompanier_coords), len(obstacle_coords), len(df))
 
-        # 3a. Separation (also scale if in millimeters)
+        # 3a. Separation
         sep_col = cls._find_column(cols, [
             "SeparationDistance_Leader01Follower01_World",
             "DistanceX_Individual01Invidual02_GoalOriented",
@@ -532,18 +532,15 @@ class TrajectoryLoader:
         ])
         if curv_col:
             curv_raw = df[curv_col].ffill().bfill().fillna(0.0).to_numpy()
-            # If curvature was calculated from mm coordinates, kappa is in 1/mm; convert to 1/m
             if float(np.nanmedian(np.abs(curv_raw))) < 0.005 and coord_scale == 1000.0:
                 curv_raw = curv_raw * 1000.0
             foll_curv = curv_raw.round(4).tolist()
         else:
             foll_curv = [0.0] * n
 
-        # 3e. Commitment (0.0 to 1.0)
+        # 3e. Commitment & Hand Lift
         commitment = cls._compute_commitment(df) or [0.0] * n
-
-        # 3f. Hand lift (meters)
-        hand_lift = cls._compute_hand_lift(df) or [0.0]
+        hand_lift = cls._compute_hand_lift(df) or [0.0] * n
 
         telemetry = TelemetryData(
             leader_speed=lead_speed,
@@ -553,12 +550,45 @@ class TrajectoryLoader:
             commitment=commitment,
             hand_lift=hand_lift
         )
-        
-        prop_trajectory = cls._extract_prop_trajectory(df)
 
+        # -------------------------------------------------------------
+        # 4. RAW SKELETON & PROP RESOLUTION
+        # -------------------------------------------------------------
         raw_skeleton = None
         if include_raw or "readingwall" in file_path.lower():
             raw_skeleton = cls._extract_raw_vicon_skeleton(cursor, file_path, max_frames=n)
+
+        # Resolve prop trajectory from features, raw markers, or raw_skeleton
+        prop_trajectory = None
+        if prop_data is not None:
+            pxs = prop_data[0] / coord_scale
+            pzs = prop_data[1] / coord_scale
+            pz_col = cls._find_column(cols, ["PositionZ_DynamicObject01_World", "PositionZ_DynamicObject_World"])
+            pys = (df[pz_col].ffill().bfill().fillna(1.55).to_numpy() / coord_scale) if pz_col else np.full_like(pxs, 1.55)
+            prop_trajectory = np.column_stack([pxs, pys, pzs]).round(4).tolist()
+        elif raw_skeleton and raw_skeleton.prop_markers:
+            # Compute centroid from the tracked raw S3 prop markers (M_1..M_5)
+            marker_arrays = []
+            for coords in raw_skeleton.prop_markers.values():
+                arr = np.array(coords, dtype=float)
+                # Filter untracked 0.0 coordinates so they don't corrupt the mean
+                invalid = (np.abs(arr[:, 0]) < 0.01) & (np.abs(arr[:, 1]) < 0.01) & (np.abs(arr[:, 2]) < 0.01)
+                arr[invalid] = np.nan
+                marker_arrays.append(arr)
+
+            if marker_arrays:
+                stacked = np.array(marker_arrays)  # (M, N, 3)
+                with np.errstate(invalid="ignore"):
+                    centroid = np.nanmean(stacked, axis=0)
+
+                clean_df = pd.DataFrame(centroid).interpolate(limit=60).bfill().ffill().fillna(0.0)
+                clean_arr = clean_df.to_numpy().copy()  # <-- Add .copy() here
+                valid_y = clean_arr[:, 1] > 0.3
+                default_y = float(np.median(clean_arr[valid_y, 1])) if np.any(valid_y) else 1.60
+                clean_arr[~valid_y, 1] = default_y
+                prop_trajectory = clean_arr.round(4).tolist()
+        else:
+            prop_trajectory = cls._extract_prop_trajectory(df, coord_scale=coord_scale)
 
         return TrajectoryResponse(
             leader=leader_coords,

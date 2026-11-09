@@ -5,7 +5,7 @@ import { getHeatmapColor } from '../utils/mocapMath.js';
 import { usePlaybackStore } from '../store/usePlaybackStore.js';
 import { LabArena } from './scene/LabArena.js';
 import { PedestrianMesh } from './agents/PedestrianMesh.js';
-import { HumanFbxMesh } from './agents/HumanFbxMesh.js'; // <-- Import new component
+import { HumanFbxMesh } from './agents/HumanFbxMesh.js';
 import { ObstacleMesh } from './agents/ObstacleMesh.js';
 import { RobotFbxMesh } from './agents/RobotFbxMesh.js';
 import { GhostFollower } from './agents/GhostFollower.js';
@@ -16,7 +16,6 @@ import { ViconSkeletonMesh } from './agents/ViconSkeletonMesh.js';
 export function Scene() {
   const currentFrame = usePlaybackStore((s) => s.currentFrame);
   const trajectories = usePlaybackStore((s) => s.trajectories);
-  const wallPlane = usePlaybackStore((s) => s.wallPlane);
   const matchTrajectories = usePlaybackStore((s) => s.matchTrajectories);
   const cameraMode = usePlaybackStore((s) => s.cameraMode);
   const heatmapMode = usePlaybackStore((s) => s.heatmapMode);
@@ -48,7 +47,8 @@ export function Scene() {
   const hasObstacle = (trajectories.obstacle?.length ?? 0) > 0;
   const obstaclePos = hasObstacle ? (trajectories.obstacle[currentFrame] || trajectories.obstacle[0]) : undefined;
 
-  const hasProp = (trajectories.prop?.length ?? 0) > 0;
+  const hasProp = (trajectories.prop?.length ?? 0) > 0 ||
+    !!(rawSkeleton?.prop_markers && Object.keys(rawSkeleton.prop_markers).length > 0);
 
   const followerColors = useMemo(() => {
     if (heatmapMode === 'none' || !telemetry || trajectories.follower.length === 0) return null;
@@ -73,7 +73,6 @@ export function Scene() {
         size={22}
         cornerAngle={cornerAngle}
         overtakingConfig={overtakingConfig}
-        wallPlane={wallPlane}
         isReadingWall={isReadingWall}
       />
 
@@ -145,7 +144,7 @@ export function Scene() {
       {/* Prop Person Orb with Cluster Markers */}
       {hasProp && (
         <PropPersonOrb
-          propTrajectory={trajectories.prop!}
+          propTrajectory={trajectories.prop || []}
           propMarkers={rawSkeleton?.prop_markers}
           currentFrame={currentFrame}
         />

@@ -19,7 +19,6 @@ export function LabArena({
   size = 20,
   cornerAngle = null,
   overtakingConfig = null,
-  wallPlane = null,
   isReadingWall = false,
 }: LabArenaProps) {
   const half = size / 2;
@@ -88,8 +87,8 @@ export function LabArena({
       )}
 
       {/* 8. Static Reading Wall (ReadingWallIntentions Study) */}
-      {(isReadingWall || wallPlane) && (
-        <WallPlaneMesh wall={wallPlane} width={3.0} />
+      {(isReadingWall) && (
+        <WallPlaneMesh width={3.0} />
       )}
     </group>
   );
