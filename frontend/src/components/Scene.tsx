@@ -1,5 +1,6 @@
-import { Suspense, useMemo } from 'react';
-import { Line, Environment } from '@react-three/drei';
+import React, {useState, Suspense, useMemo } from 'react';
+import { Line, Environment, OrbitControls } from '@react-three/drei';
+import * as THREE from 'three';
 import { BRAND } from '../theme/brand.js';
 import { getHeatmapColor } from '../utils/mocapMath.js';
 import { usePlaybackStore } from '../store/usePlaybackStore.js';
@@ -10,8 +11,9 @@ import { ObstacleMesh } from './agents/ObstacleMesh.js';
 import { RobotFbxMesh } from './agents/RobotFbxMesh.js';
 import { GhostFollower } from './agents/GhostFollower.js';
 import { CameraRig } from './camera/CameraRig.js';
-import { PropPersonOrb } from './agents/PropPersonOrb.js';
+import { PropMesh } from './agents/PropMesh.js';
 import { ViconSkeletonMesh } from './agents/ViconSkeletonMesh.js';
+import { DoorMesh } from './agents/DoorMesh.js';
 
 export function Scene() {
   const currentFrame = usePlaybackStore((s) => s.currentFrame);
@@ -29,7 +31,9 @@ export function Scene() {
 
   const cornerAngle = getCornerAngle();
   const overtakingConfig = getOvertakingConfig();
-  const isReadingWall = getIsReadingWall();
+  const isReadingWall = usePlaybackStore((s) => s.getIsReadingWall());
+  const isDoorStudy = usePlaybackStore((s) => s.getIsDoorStudy());
+  const propType = usePlaybackStore((s) => s.getPropType());
 
   const nextFrame = currentFrame + 1;
   const leaderPos = trajectories.leader[currentFrame] || trajectories.leader[0];
@@ -47,8 +51,11 @@ export function Scene() {
   const hasObstacle = (trajectories.obstacle?.length ?? 0) > 0;
   const obstaclePos = hasObstacle ? (trajectories.obstacle[currentFrame] || trajectories.obstacle[0]) : undefined;
 
-  const hasProp = (trajectories.prop?.length ?? 0) > 0 ||
-    !!(rawSkeleton?.prop_markers && Object.keys(rawSkeleton.prop_markers).length > 0);
+// Only consider props valid if this study actually has a prop or if prop markers exist
+  const hasProp = Boolean(
+    (isReadingWall || isDoorStudy) &&
+    ((trajectories.prop?.length ?? 0) > 0 || (rawSkeleton?.prop_markers && Object.keys(rawSkeleton.prop_markers).length > 0))
+  );
 
   const followerColors = useMemo(() => {
     if (heatmapMode === 'none' || !telemetry || trajectories.follower.length === 0) return null;
@@ -110,23 +117,23 @@ export function Scene() {
         );
       })}
 
-  {/* Human Leader Representation */}
-  {useRawRig && rawSkeleton?.leader_markers ? (
-    <ViconSkeletonMesh
-      markers={rawSkeleton.leader_markers}
-      currentFrame={currentFrame}
-    />
-  ) : (
-    <Suspense fallback={<PedestrianMesh position={leaderPos} nextPosition={leaderNext} />}>
-      <HumanFbxMesh
-        position={leaderPos}
-        nextPosition={leaderNext}
-        trajectory={trajectories.leader}
-        currentFrame={currentFrame}
-        speed={leaderSpeed}
-      />
-    </Suspense>
-  )}
+      {/* Human Leader Representation */}
+      {useRawRig && rawSkeleton?.leader_markers ? (
+        <ViconSkeletonMesh
+          markers={rawSkeleton.leader_markers}
+          currentFrame={currentFrame}
+        />
+      ) : (
+        <Suspense fallback={<PedestrianMesh position={leaderPos} nextPosition={leaderNext} />}>
+          <HumanFbxMesh
+            position={leaderPos}
+            nextPosition={leaderNext}
+            trajectory={trajectories.leader}
+            currentFrame={currentFrame}
+            speed={leaderSpeed}
+          />
+        </Suspense>
+      )}
 
       {/* Accompanier Agent */}
       {hasAccompanier && (
@@ -138,16 +145,80 @@ export function Scene() {
         />
       )}
 
-      {/* Obstacles & Props */}
+      {/* Obstacles (Strictly for ObstacleNavigation & Cornering) */}
       {hasObstacle && <ObstacleMesh position={obstaclePos} />}
 
-      {/* Prop Person Orb with Cluster Markers */}
-      {hasProp && (
-        <PropPersonOrb
-          propTrajectory={trajectories.prop || []}
-          propMarkers={rawSkeleton?.prop_markers}
+     {/* Door Frame & Swing Leaf (Strictly for Door Studies) */}
+      {isDoorStudy && (
+        <DoorMesh
+          doorMarkers={rawSkeleton?.door_markers}
+          doorSwingMarkers={rawSkeleton?.doorswing_markers}
           currentFrame={currentFrame}
         />
+      )}
+
+      {/* Generalized Physical Prop / Accompaniment */}
+      {hasProp && (
+        <PropMesh
+          propTrajectory={trajectories.prop || []}
+          propMarkers={rawSkeleton?.prop_markers}
+          propType={propType}
+          currentFrame={currentFrame}
+        />
+      )}``
+
+      {/* Static Door Frame Perimeter */}
+      {rawSkeleton?.door_markers && (
+        <group name="StaticDoorFrame">
+          {Object.entries(rawSkeleton.door_markers).map(([name, pt]) => (
+            <mesh key={`door-${name}`} position={pt as [number, number, number]}>
+              <sphereGeometry args={[0.022, 16, 16]} />
+              <meshStandardMaterial color="#38bdf8" emissive="#0284c7" emissiveIntensity={0.7} />
+            </mesh>
+          ))}
+
+          {/* Door Frame Connecting Outline (Left Jamb -> Header -> Right Jamb) */}
+          {rawSkeleton.door_markers['M_4'] && rawSkeleton.door_markers['M_1'] && (
+            <line>
+              <bufferGeometry
+                attach="geometry"
+                onUpdate={(geom) => {
+                  const m1 = rawSkeleton.door_markers!['M_1'];
+                  const m2 = rawSkeleton.door_markers!['M_2'];
+                  const m3 = rawSkeleton.door_markers!['M_3'];
+                  const m4 = rawSkeleton.door_markers!['M_4'];
+                  const m5 = rawSkeleton.door_markers!['M_5'];
+                  geom.setFromPoints([
+                    new THREE.Vector3(m4[0], 0.02, m4[2]),
+                    new THREE.Vector3(m4[0], m4[1], m4[2]),
+                    new THREE.Vector3(m3[0], m3[1], m3[2]),
+                    new THREE.Vector3(m1[0], m1[1], m1[2]),
+                    new THREE.Vector3(m2[0], m2[1], m2[2]),
+                    new THREE.Vector3(m5[0], m5[1], m5[2]),
+                    new THREE.Vector3(m5[0], 0.02, m5[2]),
+                  ]);
+                }}
+              />
+              <lineBasicMaterial color="#0284c7" linewidth={2} opacity={0.75} transparent />
+            </line>
+          )}
+        </group>
+      )}
+
+      {/* Dynamic Door Swing Leaf */}
+      {rawSkeleton?.doorswing_markers && (
+        <group name="DoorSwing">
+          {Object.entries(rawSkeleton.doorswing_markers).map(([name, stream]) => {
+            const pt = stream[Math.min(currentFrame, stream.length - 1)];
+            if (!pt || (pt[0] === 0 && pt[1] === 0 && pt[2] === 0)) return null;
+            return (
+              <mesh key={`doorswing-${name}`} position={pt}>
+                <sphereGeometry args={[0.02, 16, 16]} />
+                <meshStandardMaterial color="#10b981" emissive="#059669" emissiveIntensity={0.8} />
+              </mesh>
+            );
+          })}
+        </group>
       )}
 
       {/* Robot Agent */}

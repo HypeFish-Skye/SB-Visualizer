@@ -11,6 +11,12 @@ class RawSkeletonData(BaseModel):
     prop_markers: Optional[dict[str, list[list[float]]]] = Field(
         None, description="Per-frame 3D coordinates for prop person markers (M_1..M_5)"
     )
+    door_markers: Optional[dict[str, list[float]]] = Field(
+        None, description="Static 3D coordinates for each door marker"
+    )
+    doorswing_markers: Optional[dict[str, list[list[float]]]] = Field(
+        None, description="Per-frame 3D coordinates for each door swing marker"
+    )
 
 class WallPlane(BaseModel):
     center: List[float]       # [x, y, z] center of the wall

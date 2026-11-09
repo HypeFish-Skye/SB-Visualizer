@@ -31,7 +31,6 @@ export function ControlPanel() {
   const hasObstacle = usePlaybackStore((s) => s.trajectories.obstacle.length > 0);
   const hasMatches = usePlaybackStore((s) => s.matchTrajectories.length > 0);
 
-
   const isReadingWall = usePlaybackStore((s) => s.getIsReadingWall());
   const useRawRig = usePlaybackStore((s) => s.useRawRig);
   const setUseRawRig = usePlaybackStore((s) => s.setUseRawRig);
@@ -81,6 +80,7 @@ export function ControlPanel() {
     { id: 'chase', label: 'Chase' },
     { id: 'duo', label: 'Duo' },
     { id: 'overhead', label: 'Top' },
+    { id: 'follower_pov', label: 'Follower POV' },
   ] as const;
 
   const heatmapButtons = [
@@ -265,47 +265,47 @@ export function ControlPanel() {
       </div>
 
       {/* MoCap Skeletal Rig Selector Card (Available for Reading Wall Trials) */}
-  {isReadingWall && hasRawSkeleton && (
-    <div style={{ marginBottom: 14, background: 'rgba(56, 189, 248, 0.08)', padding: '10px', borderRadius: '6px', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: '0.72rem', color: BRAND.cerulean[300], fontWeight: 700, textTransform: 'uppercase' }}>
-          Human Representation
-        </span>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
-        <button
-          onClick={() => setUseRawRig(false)}
-          style={{
-            background: !useRawRig ? BRAND.cerulean[500] : BRAND.navy[600],
-            color: !useRawRig ? BRAND.navy[700] : BRAND.grey[200],
-            border: 'none',
-            padding: '5px 0',
-            borderRadius: '4px',
-            fontSize: '0.7rem',
-            fontWeight: 700,
-            cursor: 'pointer',
-          }}
-        >
-          FBX Character
-        </button>
-        <button
-          onClick={() => setUseRawRig(true)}
-          style={{
-            background: useRawRig ? BRAND.cerulean[500] : BRAND.navy[600],
-            color: useRawRig ? BRAND.navy[700] : BRAND.grey[200],
-            border: 'none',
-            padding: '5px 0',
-            borderRadius: '4px',
-            fontSize: '0.7rem',
-            fontWeight: 700,
-            cursor: 'pointer',
-          }}
-        >
-          Vicon MoCap Rig
-        </button>
-      </div>
-    </div>
-  )}
+      {hasRawSkeleton && (
+        <div style={{ marginBottom: 14, background: 'rgba(56, 189, 248, 0.08)', padding: '10px', borderRadius: '6px', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.72rem', color: BRAND.cerulean[300], fontWeight: 700, textTransform: 'uppercase' }}>
+              Human Representation
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
+            <button
+              onClick={() => setUseRawRig(false)}
+              style={{
+                background: !useRawRig ? BRAND.cerulean[500] : BRAND.navy[600],
+                color: !useRawRig ? BRAND.navy[700] : BRAND.grey[200],
+                border: 'none',
+                padding: '5px 0',
+                borderRadius: '4px',
+                fontSize: '0.7rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              FBX Character
+            </button>
+            <button
+              onClick={() => setUseRawRig(true)}
+              style={{
+                background: useRawRig ? BRAND.cerulean[500] : BRAND.navy[600],
+                color: useRawRig ? BRAND.navy[700] : BRAND.grey[200],
+                border: 'none',
+                padding: '5px 0',
+                borderRadius: '4px',
+                fontSize: '0.7rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Vicon MoCap Rig
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Camera Rig Toggle */}
       <div style={{ marginBottom: 14 }}>

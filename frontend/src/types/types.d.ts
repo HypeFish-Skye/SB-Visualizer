@@ -1,7 +1,7 @@
 export type Vec3Tuple = [number, number, number];
 export type Vec2Tuple = [number, number];
 
-export type CameraMode = 'orbit' | 'chase' | 'duo' | 'overhead';
+export type CameraMode = 'orbit' | 'chase' | 'duo' | 'overhead' | 'follower_pov';
 export type HeatmapMode = 'none' | 'speed' | 'curvature';
 export type CorridorWidth = 'thin' | 'medium' | 'wide';
 export type TableSide = 'left' | 'right';
@@ -10,6 +10,8 @@ export type CornerAngle = 45 | 90 | 135;
 export interface RawSkeletonData {
   leader_markers?: Record<string, [number, number, number][]>;
   prop_markers?: Record<string, [number, number, number][]>;
+  door_markers?: Record<string, [number, number, number]>;
+  doorswing_markers?: Record<string, [number, number, number][]>;
 }
 
 export interface TelemetryData {
@@ -39,6 +41,8 @@ export interface TrajectoryResponse {
   wall_plane?: WallPlaneData;
   telemetry: TelemetryData;
   raw_skeleton?: RawSkeletonData;
+  useRawRig?: boolean;
+  rawSkeleton?: RawSkeletonData;
 }
 
 export interface TrialMetadata {

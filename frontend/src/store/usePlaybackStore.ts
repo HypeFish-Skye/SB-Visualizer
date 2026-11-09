@@ -44,7 +44,7 @@ interface PlaybackState {
   // Derived Helpers
   getCornerAngle: () => CornerAngle | null;
   getOvertakingConfig: () => OvertakingConfig | null;
-  getIsReadingWall: () => boolean; // <-- Add this
+  getIsReadingWall: () => boolean;
   getTotalFrames: () => number;
 
   // Synchronous State Modifiers
@@ -64,6 +64,8 @@ interface PlaybackState {
   fetchTrials: (study?: string) => Promise<void>;
   loadTrial: (filePath: string) => Promise<void>;
   runDTWSearch: () => Promise<void>;
+  getIsDoorStudy: () => boolean;
+  getPropType: () => 'person' | 'shelf' | 'stroller' | 'generic';
 }
 
 export const usePlaybackStore = create<PlaybackState>((set, get) => ({
@@ -243,6 +245,7 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
           prop: data.prop_trajectory || [],
         },
         telemetry: data.telemetry,
+        useRawRig: Boolean(data.raw_skeleton?.leader_markers),
         rawSkeleton: data.raw_skeleton || null,
         currentFrame: 0,
         loading: false,
@@ -280,5 +283,22 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
       console.error('DTW search failed:', err);
       set({ searching: false });
     }
+  },
+
+  // In usePlaybackStore.ts:
+  getIsDoorStudy: () => {
+    const { selectedFile, selectedStudy } = get();
+    const name = (selectedFile || '').toLowerCase();
+    const study = (selectedStudy || '').toLowerCase();
+    return study.includes('door') || name.includes('door');
+  },
+
+  getPropType: (): 'person' | 'shelf' | 'stroller' | 'generic' => {
+    const { selectedFile } = get();
+    const name = (selectedFile || '').toLowerCase();
+    if (name.includes('shelf')) return 'shelf';
+    if (name.includes('stroller')) return 'stroller';
+    if (name.includes('propPerson') || name.includes('readingwall')) return 'person';
+    return 'generic';
   },
 }));

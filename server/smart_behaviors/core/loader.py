@@ -140,12 +140,14 @@ class TrajectoryLoader:
         px = cls._find_column(cols, [
             "PositionX_DynamicObject01_World",
             "PositionX_DynamicObject_World",
-            "PositionX_DynamicObstacle01_World",
+            "PositionX_PropPerson01_World",
+            "PositionX_PropPerson_World",
         ])
         py = cls._find_column(cols, [
             "PositionY_DynamicObject01_World",
             "PositionY_DynamicObject_World",
-            "PositionY_DynamicObstacle01_World",
+            "PositionY_PropPerson01_World",
+            "PositionY_PropPerson_World",
         ])
         if px and py:
             xs = pd.to_numeric(df[px], errors="coerce").ffill().bfill().fillna(0.0).to_numpy() / coord_scale
@@ -153,7 +155,9 @@ class TrajectoryLoader:
 
             pz = cls._find_column(cols, [
                 "PositionZ_DynamicObject01_World",
-                "PositionZ_DynamicObject_World"
+                "PositionZ_DynamicObject_World",
+                "PositionZ_PropPerson01_World",
+                "PositionZ_PropPerson_World"
             ])
             if pz:
                 ys = pd.to_numeric(df[pz], errors="coerce").ffill().bfill().fillna(1.60).to_numpy() / coord_scale
@@ -241,14 +245,24 @@ class TrajectoryLoader:
 
         # 2. If not, resolve from the Raw S3 bucket path
         if raw_df is None:
-            raw_s3_url = f"s3://smart-behaviors-database/Raw/ReadingWallIntentions/{base_name}"
+            # Detect study folder name from file path or trial name
+            study = "ReadingWallIntentions"
+            if "doorswithwideaccompaniment" in file_path.lower():
+                study = "DoorsWithWideAccompaniment"
+            elif "/" in file_path and "raw" in file_path.lower():
+                # Extract study directory directly if available
+                parts = file_path.split("/")
+                if "Raw" in parts:
+                    study = parts[parts.index("Raw") + 1]
+
+            raw_s3_url = f"s3://smart-behaviors-database/Raw/{study}/{base_name}"
             try:
                 raw_df = cursor.execute(f"SELECT * FROM read_parquet('{raw_s3_url}');").df()
             except Exception:
                 # Fallback: check with wildcard pattern
                 try:
                     stem = base_name.replace(".parquet", "")
-                    wildcard = f"s3://smart-behaviors-database/Raw/ReadingWallIntentions/*{stem}*.parquet"
+                    wildcard = f"s3://smart-behaviors-database/Raw/{study}/*{stem}*.parquet"
                     raw_df = cursor.execute(f"SELECT * FROM read_parquet('{wildcard}') LIMIT 1;").df()
                 except Exception:
                     return None
@@ -258,25 +272,34 @@ class TrajectoryLoader:
 
         cols = list(raw_df.columns)
 
-        # 3. Identify human participant namespace (e.g. "Ben", "Isa", "Eleni")
+        # 3. Identify human participant namespace (e.g. "Avi", "Eleni", "Ben")
         names = sorted({c.split(":")[0] for c in cols if ":" in c})
-        human_names = [n for n in names if not n.startswith("Prop") and n not in ["Cart", "Wagon", "Wall"]]
-        if not human_names:
+        
+        # Check for standard human Plug-in Gait markers to ensure objects (Door, Shelf) aren't chosen
+        KNOWN_HUMAN = {"ARIEL", "C7", "CLAV", "LASI", "RASI", "LFHD", "RFHD", "STRN"}
+        human_candidates = [
+            n for n in names
+            if any(f"{n}:{m}-x" in cols for m in KNOWN_HUMAN)
+        ]
+        if not human_candidates:
+            NON_HUMAN = {"cart", "wagon", "wall", "door", "doorswing", "doorframe", "shelf", "movableshelf", "stroller", "obstacle", "box"}
+            human_candidates = [n for n in names if not n.startswith("Prop") and n.lower() not in NON_HUMAN]
+
+        if not human_candidates:
             return None
 
-        walker = human_names[0]
+        walker = human_candidates[0]
 
         # 4. Extract 53 Leader markers
         leader_markers: dict[str, list[list[float]]] = {}
         for c in cols:
             if c.startswith(f"{walker}:") and c.endswith("-x"):
-                marker_name = c[len(walker) + 1 : -2]  # Extract marker name (e.g. "ARIEL", "C7")
+                marker_name = c[len(walker) + 1 : -2]
                 mx = f"{walker}:{marker_name}-x"
                 my = f"{walker}:{marker_name}-y"
                 mz = f"{walker}:{marker_name}-z"
 
                 if mx in cols and my in cols and mz in cols:
-                    # Vicon mm -> Three.js meters: X -> X, Z -> Y (height), Y -> Z (depth)
                     xs = pd.to_numeric(raw_df[mx], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
                     ys = pd.to_numeric(raw_df[mz], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
                     zs = pd.to_numeric(raw_df[my], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
@@ -284,28 +307,72 @@ class TrajectoryLoader:
                     coords = np.column_stack([xs, ys, zs]).round(4).tolist()
                     leader_markers[marker_name] = coords[:max_frames]
 
-        # 5. Extract 5 Prop Person markers (e.g. PropAlyssa:M_1..5)
+        # 5. Extract Prop / Accompaniment markers (PropPerson, Shelf, Stroller, etc.)
         prop_markers: dict[str, list[list[float]]] = {}
-        prop_namespaces = [n for n in names if n.startswith("Prop")]
-        if prop_namespaces:
-            prop_who = prop_namespaces[0]
-            for i in range(1, 6):
-                pmx = f"{prop_who}:M_{i}-x"
-                pmy = f"{prop_who}:M_{i}-y"
-                pmz = f"{prop_who}:M_{i}-z"
+        prop_candidates = [
+            n for n in names 
+            if n.startswith("Prop") or n.lower() in ["shelf", "movableshelf", "stroller", "cart", "wagon"]
+        ]
+        if prop_candidates:
+            prop_who = prop_candidates[0]
+            # Collect all markers belonging to this object (e.g. M_1, M_2, M_3...)
+            prop_marker_names = sorted({
+                c[len(prop_who) + 1 : -2]
+                for c in cols
+                if c.startswith(f"{prop_who}:") and c.endswith("-x")
+            })
+            for m_name in prop_marker_names:
+                pmx = f"{prop_who}:{m_name}-x"
+                pmy = f"{prop_who}:{m_name}-y"
+                pmz = f"{prop_who}:{m_name}-z"
                 if pmx in cols and pmy in cols and pmz in cols:
                     pxs = pd.to_numeric(raw_df[pmx], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
                     pys = pd.to_numeric(raw_df[pmz], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
                     pzs = pd.to_numeric(raw_df[pmy], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
 
-                    # Only register if tracked
                     if np.nanmax(np.abs(pxs)) > 0.05:
                         pcoords = np.column_stack([pxs, pys, pzs]).round(4).tolist()
-                        prop_markers[f"M_{i}"] = pcoords[:max_frames]
+                        prop_markers[m_name] = pcoords[:max_frames]
+
+
+        # Extract Static Door Frame Perimeter (averaged into static 3D reference coordinates)
+        door_markers: dict[str, list[float]] = {}
+        door_cols = [c for c in cols if c.startswith("Door:") and c.endswith("-x")]
+        for c in door_cols:
+            m_name = c[len("Door:"):-2]
+            mx, my, mz = f"Door:{m_name}-x", f"Door:{m_name}-y", f"Door:{m_name}-z"
+            if mx in cols and my in cols and mz in cols:
+                xs = pd.to_numeric(raw_df[mx], errors="coerce").dropna()
+                ys = pd.to_numeric(raw_df[mz], errors="coerce").dropna()
+                zs = pd.to_numeric(raw_df[my], errors="coerce").dropna()
+                if len(xs) > 0:
+                    # Static mean position [X, Y (up), Z (depth)] in meters
+                    door_markers[m_name] = [
+                        round(float(xs.mean()) / 1000.0, 4),
+                        round(float(ys.mean()) / 1000.0, 4),
+                        round(float(zs.mean()) / 1000.0, 4),
+                    ]
+
+        # Extract Dynamic Door Swing Markers (per-frame time series)
+        doorswing_markers: dict[str, list[list[float]]] = {}
+        swing_cols = [c for c in cols if c.startswith("DoorSwing:") and c.endswith("-x")]
+        for c in swing_cols:
+            m_name = c[len("DoorSwing:"):-2]
+            smx, smy, smz = f"DoorSwing:{m_name}-x", f"DoorSwing:{m_name}-y", f"DoorSwing:{m_name}-z"
+            if smx in cols and smy in cols and smz in cols:
+                s_xs = pd.to_numeric(raw_df[smx], errors="coerce").interpolate(limit=60).bfill().ffill().to_numpy() / 1000.0
+                s_ys = pd.to_numeric(raw_df[smz], errors="coerce").interpolate(limit=60).bfill().ffill().to_numpy() / 1000.0
+                s_zs = pd.to_numeric(raw_df[smy], errors="coerce").interpolate(limit=60).bfill().ffill().to_numpy() / 1000.0
+                
+                # Check that marker is valid and tracked
+                if np.nanmax(np.abs(s_xs)) > 0.05:
+                    doorswing_markers[m_name] = np.column_stack([s_xs, s_ys, s_zs]).round(4).tolist()[:max_frames]
 
         return RawSkeletonData(
             leader_markers=leader_markers if leader_markers else None,
             prop_markers=prop_markers if prop_markers else None,
+            door_markers=door_markers if door_markers else None,
+            doorswing_markers=doorswing_markers if doorswing_markers else None,
         )
 
     @classmethod
@@ -420,15 +487,42 @@ class TrajectoryLoader:
                 dpy = df[rel_py].ffill().bfill().fillna(0.0).to_numpy()
                 prop_data = (foll_data[0] + dpx, foll_data[1] + dpy)
 
-        # Accompanier (Accompanier01)
+        # Accompanier (Accompanier01 / DynamicObject01 in FollowingAccompaniedLeader)
         acc_data = cls._extract_world_coords(df, ["Accompanier01", "Accompanier"])
         if acc_data is None and foll_data is not None:
-            rel_ax = cls._find_column(cols, ["RelativePositionX_Accompanier01Follower01_Follower01Allocentric"])
-            rel_ay = cls._find_column(cols, ["RelativePositionY_Accompanier01Follower01_Follower01Allocentric"])
+            # In FollowingAccompaniedLeader, the second agent was often labeled DynamicObject01
+            rel_ax = cls._find_column(cols, [
+                "RelativePositionX_Accompanier01Follower01_Follower01Allocentric",
+                "RelativePositionX_DynamicObject01Follower01_Follower01Allocentric" if "accompanied" in file_path.lower() else ""
+            ])
+            rel_ay = cls._find_column(cols, [
+                "RelativePositionY_Accompanier01Follower01_Follower01Allocentric",
+                "RelativePositionY_DynamicObject01Follower01_Follower01Allocentric" if "accompanied" in file_path.lower() else ""
+            ])
             if rel_ax and rel_ay:
                 dax = df[rel_ax].ffill().bfill().fillna(0.0).to_numpy()
                 day = df[rel_ay].ffill().bfill().fillna(0.0).to_numpy()
                 acc_data = (foll_data[0] + dax, foll_data[1] + day)
+
+        # Prop Object / Accompaniment (Shelf, Stroller, Prop Person)
+        prop_data = None
+        if "accompanied" not in file_path.lower():
+            prop_data = cls._extract_world_coords(df, [
+                "PropPerson01", "PropPerson", "Prop01", "Prop", "Shelf", "MovableShelf", "Stroller", "DynamicObject01", "DynamicObject"
+            ])
+            if prop_data is None and foll_data is not None:
+                rel_px = cls._find_column(cols, [
+                    "RelativePositionX_DynamicObject01Follower01_Follower01Allocentric",
+                    "RelativePositionX_DynamicObjectFollower01_Follower01Allocentric"
+                ])
+                rel_py = cls._find_column(cols, [
+                    "RelativePositionY_DynamicObject01Follower01_Follower01Allocentric",
+                    "RelativePositionY_DynamicObjectFollower01_Follower01Allocentric"
+                ])
+                if rel_px and rel_py:
+                    dpx = df[rel_px].ffill().bfill().fillna(0.0).to_numpy()
+                    dpy = df[rel_py].ffill().bfill().fillna(0.0).to_numpy()
+                    prop_data = (foll_data[0] + dpx, foll_data[1] + dpy)
 
         # Static / Dynamic Obstacles
         obs_data = cls._extract_world_coords(df, [
@@ -461,6 +555,7 @@ class TrajectoryLoader:
                 )
 
         coord_scale = 1000.0 if max_coord_val > 30.0 else 1.0
+
 
         follower_coords = cls._to_vec3_list(*foll_data, scale=coord_scale) if foll_data is not None else []
         leader_coords = cls._to_vec3_list(*lead_data, scale=coord_scale) if lead_data is not None else []
@@ -555,8 +650,19 @@ class TrajectoryLoader:
         # 4. RAW SKELETON & PROP RESOLUTION
         # -------------------------------------------------------------
         raw_skeleton = None
-        if include_raw or "readingwall" in file_path.lower():
+        is_known_study = any(s in file_path.lower() for s in ["readingwall", "doorswithwideaccompaniment", "doors"])
+        if include_raw or is_known_study:
             raw_skeleton = cls._extract_raw_vicon_skeleton(cursor, file_path, max_frames=n)
+
+        # Fallback: synthesize ground leader trajectory from raw pelvis markers if raw file was loaded directly
+        if not leader_coords and raw_skeleton and raw_skeleton.leader_markers:
+            pelvis_keys = [k for k in ["LASI", "RASI", "LPSI", "RPSI"] if k in raw_skeleton.leader_markers]
+            if not pelvis_keys:
+                pelvis_keys = [k for k in ["C7", "CLAV", "STRN", "ARIEL"] if k in raw_skeleton.leader_markers]
+            if pelvis_keys:
+                pts = [np.array(raw_skeleton.leader_markers[k]) for k in pelvis_keys]
+                pelvis_centroid = np.mean(pts, axis=0)  # [x, y (height), z (depth)]
+                leader_coords = [(float(pt[0]), 0.02, float(pt[2])) for pt in pelvis_centroid]
 
         # Resolve prop trajectory from features, raw markers, or raw_skeleton
         prop_trajectory = None
@@ -582,10 +688,20 @@ class TrajectoryLoader:
                     centroid = np.nanmean(stacked, axis=0)
 
                 clean_df = pd.DataFrame(centroid).interpolate(limit=60).bfill().ffill().fillna(0.0)
-                clean_arr = clean_df.to_numpy().copy()  # <-- Add .copy() here
-                valid_y = clean_arr[:, 1] > 0.3
-                default_y = float(np.median(clean_arr[valid_y, 1])) if np.any(valid_y) else 1.60
-                clean_arr[~valid_y, 1] = default_y
+                clean_arr = clean_df.to_numpy().copy() 
+                
+                # For DoorsWide / Shelf / Stroller, use the actual marker centroid height (typically 0.7m - 1.2m)
+                is_human_prop = "propperson" in file_path.lower()
+                if is_human_prop:
+                    valid_y = clean_arr[:, 1] > 0.5
+                    default_y = float(np.median(clean_arr[valid_y, 1])) if np.any(valid_y) else 1.60
+                    clean_arr[~valid_y, 1] = default_y
+                else:
+                    # Generic physical prop: preserve true tracked centroid height
+                    valid_y = clean_arr[:, 1] > 0.1
+                    default_y = float(np.median(clean_arr[valid_y, 1])) if np.any(valid_y) else 0.85
+                    clean_arr[~valid_y, 1] = default_y
+                    
                 prop_trajectory = clean_arr.round(4).tolist()
         else:
             prop_trajectory = cls._extract_prop_trajectory(df, coord_scale=coord_scale)

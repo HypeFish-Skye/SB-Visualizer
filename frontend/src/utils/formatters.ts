@@ -11,6 +11,7 @@ const STUDY_NAME_MAP: Record<string, string> = {
   All: 'All Studies',
   ContactlessPushing: 'Contactless Pushing',
   Cornering: 'Cornering',
+  DoorsWithWideAccompaniment: 'Doors With Wide Accompaniment',
   FollowingAccompaniedLeader: 'Following Accompanied Leader',
   FollowingFidelity: 'Following Fidelity',
   Hysteresis: 'Hysteresis',
@@ -30,6 +31,7 @@ export function formatStudyName(study: string): string {
 const KNOWN_STUDIES = [
   'contactlesspushing',
   'cornering',
+  'doorswithwideaccompaniment',
   'followingaccompaniedleader',
   'followingfidelity',
   'hysteresis',

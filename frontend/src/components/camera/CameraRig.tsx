@@ -87,11 +87,42 @@ export function CameraRig({ mode, targetPos, nextPos, leaderPos, leaderNext }: C
 
         camera.position.lerp(new THREE.Vector3(camX, camY, camZ), 0.08);
         camera.lookAt(new THREE.Vector3(effectiveTarget[0], effectiveTarget[1] + 0.8, effectiveTarget[2]));
-      }
+      };
     } else if (mode === 'overhead') {
       // Top-down tracking view over the active target (leader when no follower)
       camera.position.lerp(new THREE.Vector3(effectiveTarget[0], 13.0, effectiveTarget[2] + 0.001), 0.1);
       camera.lookAt(new THREE.Vector3(effectiveTarget[0], 0, effectiveTarget[2]));
+    } else if (mode === 'follower_pov') {
+      const activeTarget = targetPos || leaderPos;
+      const activeNext = nextPos || leaderNext || activeTarget;
+      if (!activeTarget) return;
+
+      const heading = computeHeading(activeTarget, activeNext);
+      const fwdX = Math.sin(heading);
+      const fwdZ = Math.cos(heading);
+
+      // Sensor / mast height above the follower chassis (adjust to robot height, e.g. ~0.8m)
+      const eyeHeight = 0.85;
+
+      // Position camera slightly forward of center so the robot model doesn't clip near-plane
+      const targetCam = new THREE.Vector3(
+        activeTarget[0] + fwdX * 0.15,
+        activeTarget[1] + eyeHeight,
+        activeTarget[2] + fwdZ * 0.15
+      );
+
+      // Smooth camera motion
+      camera.position.lerp(targetCam, 0.25);
+
+      // Look 5 meters directly ahead along the robot's heading
+      const lookAheadDist = 5.0;
+      camera.lookAt(
+        new THREE.Vector3(
+          targetCam.x + fwdX * lookAheadDist,
+          targetCam.y - 0.05, // subtle downward gaze towards floor/leader
+          targetCam.z + fwdZ * lookAheadDist
+        )
+      );
     }
   });
 
