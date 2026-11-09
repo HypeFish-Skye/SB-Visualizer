@@ -54,16 +54,34 @@ export function Scene() {
   const hasObstacle = (trajectories.obstacle?.length ?? 0) > 0;
   const obstaclePos = hasObstacle ? (trajectories.obstacle[currentFrame] || trajectories.obstacle[0]) : undefined;
 
-  // Prop coordinates & markers
+  // Prop coordinates
   const propTrajectory = trajectories.prop || [];
-  const hasPropData =
-    propTrajectory.length > 0 ||
-    !!(rawSkeleton?.prop_markers && Object.keys(rawSkeleton.prop_markers).length > 0);
-
   const rawPropPos = propTrajectory[currentFrame] || propTrajectory[0];
   const rawPropNext = propTrajectory[nextFrame] || rawPropPos;
 
-  // Feet position on ground plane (Y = 0.02) for human confederate PedestrianMesh
+  const isDuplicateTrack = hasFollower && followerPos && rawPropPos && 
+    Math.abs(followerPos[0] - rawPropPos[0]) < 0.001 &&
+    Math.abs(followerPos[2] - rawPropPos[2]) < 0.001;
+
+  const hasPropData = !isDuplicateTrack && (
+    propTrajectory.length > 0 ||
+    !!(rawSkeleton?.prop_markers && Object.keys(rawSkeleton.prop_markers).length > 0)
+  );
+
+  // Split markers between the Cart (follower) and the PropPerson (prop)
+  const allPropMarkers = rawSkeleton?.prop_markers || {};
+  const followerMarkers: Record<string, [number, number, number][]> = {};
+  const propPersonMarkers: Record<string, [number, number, number][]> = {};
+
+  Object.entries(allPropMarkers).forEach(([key, stream]) => {
+    const lowerKey = key.toLowerCase();
+    if (lowerKey.includes('prop') || lowerKey.includes('person') || lowerKey.includes('alyssa')) {
+      propPersonMarkers[key] = stream;
+    } else {
+      followerMarkers[key] = stream;
+    }
+  });
+
   const propPedestrianPos: [number, number, number] | undefined = rawPropPos
     ? [rawPropPos[0], 0.02, rawPropPos[2]]
     : undefined;
@@ -83,13 +101,11 @@ export function Scene() {
     <>
       <color attach="background" args={[BRAND.navy[700]]} />
       <fog attach="fog" args={[BRAND.navy[700], 14, 42]} />
-
       <Environment preset="city" environmentIntensity={0.55} />
       <ambientLight intensity={0.45} />
       <directionalLight position={[10, 16, 8]} intensity={1.2} castShadow shadow-mapSize={[1024, 1024]} />
       <directionalLight position={[-10, 12, -10]} intensity={0.35} color={BRAND.cerulean[200]} />
 
-      {/* Lab Environment */}
       <LabArena
         size={22}
         cornerAngle={cornerAngle}
@@ -107,6 +123,12 @@ export function Scene() {
       {hasObstacle && trajectories.obstacle.length >= 2 && (
         <Line points={trajectories.obstacle} color={BRAND.orange[400]} lineWidth={2.0} dashed dashSize={0.25} gapSize={0.2} opacity={0.65} transparent />
       )}
+      
+      {/* 1. Added Prop Person Trajectory mapping to floor */}
+      {hasPropData && isPropPerson && propTrajectory.length >= 2 && (
+        <Line points={propTrajectory} color="#f59e0b" lineWidth={2.0} dashed dashSize={0.3} gapSize={0.2} opacity={0.7} transparent />
+      )}
+
       {trajectories.follower.length >= 2 && (
         <Line
           points={trajectories.follower}
@@ -119,7 +141,6 @@ export function Scene() {
         />
       )}
 
-      {/* Multi-Run DTW Ghosts */}
       {matchTrajectories.map((m, idx) => {
         const ghostIdx = Math.min(currentFrame, m.coords.length - 1);
         const ghostPos = m.coords[ghostIdx];
@@ -131,7 +152,6 @@ export function Scene() {
         );
       })}
 
-      {/* Leader Representation */}
       {useRawRig && rawSkeleton?.leader_markers ? (
         <ViconSkeletonMesh markers={rawSkeleton.leader_markers} currentFrame={currentFrame} />
       ) : (
@@ -146,7 +166,6 @@ export function Scene() {
         </Suspense>
       )}
 
-      {/* Accompanier (FollowingAccompaniedLeader) */}
       {hasAccompanier && (
         <PedestrianMesh
           position={accompanierPos}
@@ -156,10 +175,8 @@ export function Scene() {
         />
       )}
 
-      {/* Obstacles (ObstacleNavigation, Cornering) */}
       {hasObstacle && <ObstacleMesh position={obstaclePos} />}
 
-      {/* Static Door Frame & Swinging Door Leaf (Doors study only) */}
       {isDoorStudy && (
         <DoorMesh
           doorMarkers={rawSkeleton?.door_markers}
@@ -168,9 +185,6 @@ export function Scene() {
         />
       )}
 
-      {/* ============================================================= */}
-      {/* 1. FOLLOWER SLOT (Robot Gita vs. Follower Prop Cart/Wagon)    */}
-      {/* ============================================================= */}
       {hasFollower && (
         <>
           {followerKind === 'robot' ? (
@@ -178,35 +192,29 @@ export function Scene() {
               <RobotFbxMesh position={followerPos} nextPosition={followerNext} />
             </Suspense>
           ) : (
-            /* Follower Prop Cart / Wagon (takes the place of the robot) */
             <PhysicalPropMesh
               position={followerPos}
               nextPosition={followerNext}
               trajectory={trajectories.follower}
-              markers={rawSkeleton?.prop_markers}
+              markers={followerMarkers} // 2. Pass explicitly separated cart markers
               currentFrame={currentFrame}
             />
           )}
         </>
       )}
 
-      {/* ============================================================= */}
-      {/* 2. PROP ENTITIES (Human Prop Person vs. Inanimate Object)    */}
-      {/* ============================================================= */}
       {hasPropData && (
         <>
           {isPropPerson ? (
-            /* Human Prop Person (ReadingWallIntentions) -> PedestrianMesh */
             <group name="PropPerson">
               <PedestrianMesh
                 position={propPedestrianPos}
                 nextPosition={propPedestrianNext}
-                color="#f59e0b" // Amber / Gold Tone
+                color="#f59e0b"
                 visorColor="#fbbf24"
               />
-              {/* Optical head markers for confederate human */}
-              {rawSkeleton?.prop_markers &&
-                Object.entries(rawSkeleton.prop_markers).map(([name, stream]) => {
+              {/* 3. Render Prop Person's specific optical markers */}
+              {Object.entries(propPersonMarkers).map(([name, stream]) => {
                   const pt = stream[Math.min(currentFrame, stream.length - 1)];
                   if (!pt || (pt[0] === 0 && pt[1] === 0 && pt[2] === 0)) return null;
                   return (
@@ -218,13 +226,12 @@ export function Scene() {
                 })}
             </group>
           ) : (
-            /* Inanimate Physical Prop (Shelf, Stroller in Doors study when not in follower slot) */
             !hasFollower && (
               <PhysicalPropMesh
                 position={rawPropPos}
                 nextPosition={rawPropNext}
                 trajectory={propTrajectory}
-                markers={rawSkeleton?.prop_markers}
+                markers={followerMarkers} // Use generic prop markers
                 currentFrame={currentFrame}
               />
             )
@@ -232,7 +239,6 @@ export function Scene() {
         </>
       )}
 
-      {/* Camera Rig */}
       <CameraRig
         mode={cameraMode}
         targetPos={followerPos}

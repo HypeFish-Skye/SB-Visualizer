@@ -342,19 +342,21 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
 
   // Identifies whether the secondary prop is a human confederate (ReadingWall) vs physical object
   getIsPropPerson: (): boolean => {
-    const { selectedFile, selectedStudy, rawSkeleton } = get();
+    const { selectedFile, selectedStudy } = get();
     const name = (selectedFile || '').toLowerCase();
     const study = (selectedStudy || '').toLowerCase();
 
+    // 1. Explicitly flagged in filename
     if (name.includes('propperson') || name.includes('propalyssa')) return true;
+
     if (study.includes('readingwall') || name.includes('readingwall')) {
-      // In reading wall, if raw markers exist and contain 'prop' or human head markers
-      if (rawSkeleton?.prop_markers) {
-        return Object.keys(rawSkeleton.prop_markers).some(
-          (k) => k.toLowerCase().includes('prop') || k.toLowerCase().startsWith('m_')
-        );
+      // 2. If filename explicitly mentions a physical object but NO person, it's an object.
+      if ((name.includes('cart') || name.includes('wagon') || name.includes('shelf') || name.includes('stroller')) && !name.includes('person')) {
+        return false;
       }
-      return name.includes('prop');
+
+      // Default to true for reading wall prop person study
+      return true;
     }
     return false;
   },
