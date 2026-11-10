@@ -16,7 +16,19 @@ export const PhysicalPropMesh: React.FC<PhysicalPropMeshProps> = ({
   markers,
   currentFrame,
 }) => {
-  // 1. Calculate static physical dimensions of the chassis ONCE to prevent morphing
+  const activePos = position || trajectory[Math.min(currentFrame, Math.max(0, trajectory.length - 1))];
+  const hasValidPos = activePos && (activePos[0] !== 0 || activePos[2] !== 0);
+
+  const heading = useMemo(() => {
+    if (!activePos) return 0;
+    const next = nextPosition || trajectory[Math.min(currentFrame + 1, Math.max(0, trajectory.length - 1))];
+    if (!next) return 0;
+    const dx = next[0] - activePos[0];
+    const dz = next[2] - activePos[2];
+    return Math.hypot(dx, dz) > 0.005 ? Math.atan2(dx, dz) : 0;
+  }, [activePos, nextPosition, trajectory, currentFrame]);
+
+  // Calculate static physical dimensions of the chassis ONCE
   const { width, height, depth } = useMemo(() => {
     if (!markers || Object.keys(markers).length === 0) {
       return { width: 0.60, height: 0.65, depth: 0.48 };
@@ -27,7 +39,6 @@ export const PhysicalPropMesh: React.FC<PhysicalPropMeshProps> = ({
       return { width: 0.60, height: 0.65, depth: 0.48 };
     }
     
-    // Find a reference frame where the prop is actively moving to get a clean local projection
     let refFrame = -1;
     let refHeading = 0;
     let cx1 = 0, cz1 = 0;
@@ -43,7 +54,7 @@ export const PhysicalPropMesh: React.FC<PhysicalPropMeshProps> = ({
            const czB = p2s.reduce((sum, p) => sum + p[i+10][2], 0) / p2s.length;
            
            const dist = Math.hypot(cxB - cxA, czB - czA);
-           if (dist > 0.05) { // Object is definitively moving
+           if (dist > 0.05) { 
                refFrame = i;
                refHeading = Math.atan2(cxB - cxA, czB - czA);
                cx1 = cxA; 
@@ -53,7 +64,6 @@ export const PhysicalPropMesh: React.FC<PhysicalPropMeshProps> = ({
        }
     }
     
-    // Fallback if the object never moves during the trial
     if (refFrame === -1) {
         for (let i = 0; i < streams[0].length; i++) {
            const p1s = streams.filter(s => s[i] && (s[i][0] !== 0 || s[i][2] !== 0));
@@ -91,17 +101,18 @@ export const PhysicalPropMesh: React.FC<PhysicalPropMeshProps> = ({
        }
     });
 
-    // Exact marker area padding to wrap just outside the optical spheres
+    // Enforce a minimum sensible height (e.g. 0.5m) so flat obstacles render as 3D boxes
+    const calcH = Math.abs(maxY - minY);
     return {
        width: Math.max(Math.abs(maxX - minX) + 0.04, 0.15),
-       height: Math.max(Math.abs(maxY - minY) + 0.04, 0.15),
+       height: Math.max(calcH > 0.01 ? calcH + 0.04 : 0.65, 0.50), // Enforce minimum height here
        depth: Math.max(Math.abs(maxZ - minZ) + 0.04, 0.15)
     };
   }, [markers]);
 
-  // 2. Calculate dynamic position and heading based PURELY on markers (ignoring buggy trajectory)
+  // Calculate dynamic position and heading based PURELY on markers
   const { cx, cy, cz, currentHeading, isValid } = useMemo(() => {
-    let cx = 0, cy = 0, cz = 0, count = 0;
+    let cx = 0, cy = 0, cz = 0;
     let heading = 0;
     
     if (markers && Object.keys(markers).length > 0) {
@@ -114,7 +125,6 @@ export const PhysicalPropMesh: React.FC<PhysicalPropMeshProps> = ({
         });
         cx /= validStreams.length; cy /= validStreams.length; cz /= validStreams.length;
         
-        // Find last known heading by scanning backwards (prevents snapping when stopped)
         for (let t = currentFrame; t >= 10; t -= 5) {
            const p1s = streams.filter(s => s[t] && (s[t][0] !== 0 || s[t][2] !== 0));
            const p2s = streams.filter(s => s[t-10] && (s[t-10][0] !== 0 || s[t-10][2] !== 0));
@@ -132,11 +142,14 @@ export const PhysicalPropMesh: React.FC<PhysicalPropMeshProps> = ({
                }
            }
         }
+        
+        // If Y is flat (0.02) from trajectory fallback, push it up by half height so box sits on ground
+        if (cy < 0.1) cy = height / 2;
+        
         return { cx, cy, cz, currentHeading: heading, isValid: true };
       }
     }
 
-    // Fallback to trajectory ONLY if markers are completely unavailable
     const activePos = position || trajectory[Math.min(currentFrame, Math.max(0, trajectory.length - 1))];
     const next = nextPosition || trajectory[Math.min(currentFrame + 1, Math.max(0, trajectory.length - 1))];
     if (activePos && next) {

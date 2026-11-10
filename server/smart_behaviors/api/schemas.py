@@ -8,6 +8,12 @@ class RawSkeletonData(BaseModel):
     leader_markers: Optional[dict[str, list[list[float]]]] = Field(
         None, description="Per-frame 3D coordinates for each human marker"
     )
+    follower_markers: Optional[dict[str, list[list[float]]]] = Field(
+        None, description="Per-frame 3D coordinates for each follower marker"
+    )
+    obstacle_markers: Optional[dict[str, list[list[float]]]] = Field(
+        None, description="Per-frame 3D coordinates for each obstacle marker"
+    )
     prop_markers: Optional[dict[str, list[list[float]]]] = Field(
         None, description="Per-frame 3D coordinates for prop person markers (M_1..M_5)"
     )

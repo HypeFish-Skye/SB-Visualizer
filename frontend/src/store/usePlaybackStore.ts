@@ -25,7 +25,7 @@ interface PlaybackState {
   loading: boolean;
   searching: boolean;
   rawSkeleton: RawSkeletonData | null;
-  useRawRig: boolean,
+  useRawRig: boolean;
 
   // Active Trajectories & Kinematics
   trajectories: Trajectories;
@@ -67,7 +67,7 @@ interface PlaybackState {
   runDTWSearch: () => Promise<void>;
   getIsDoorStudy: () => boolean;
   getPropType: () => Prop;
-  getFollowerType: () => 'robot' | 'physical_prop' | 'none';
+  getFollowerType: () => 'robot' | 'physical_prop' | 'human' | 'none';
   getIsPropPerson: () => boolean;
 }
 
@@ -134,7 +134,6 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
     return study.includes('readingwall') || name.includes('readingwall');
   },
 
-  // Update getTotalFrames to check every agent array
   getTotalFrames: () => {
     const { trajectories } = get();
     return Math.max(
@@ -166,15 +165,12 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
     set({ currentFrame: currentFrame + 1 >= total ? 0 : currentFrame + 1 });
   },
   
-  // State Mutators
-  // Synchronous State Modifiers
   setSelectedStudy: (study) => {
     set({ selectedStudy: study });
     get().fetchTrials(study);
   },
 
   setSelectedFile: (file) => {
-    // Only load if it's a new file or if trajectories are currently empty
     const current = get();
     if (file === current.selectedFile && current.trajectories.leader.length > 0) {
       return;
@@ -190,7 +186,6 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
  
   togglePlay: () => set((state) => ({ isPlaying: !state.isPlaying })),
 
-  // Async Network Operations
   fetchStudies: async () => {
     try {
       const res = await fetch(`${API_BASE}/studies`);
@@ -248,7 +243,12 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
           prop: data.prop_trajectory || [],
         },
         telemetry: data.telemetry,
-        useRawRig: Boolean(data.raw_skeleton?.leader_markers),
+        // Reactivate raw rig automatically if ANY human rig is found
+        useRawRig: Boolean(
+          data.raw_skeleton?.leader_markers || 
+          data.raw_skeleton?.follower_markers || 
+          data.raw_skeleton?.obstacle_markers
+        ),
         rawSkeleton: data.raw_skeleton || null,
         currentFrame: 0,
         loading: false,
@@ -288,44 +288,17 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
     }
   },
 
-  // In usePlaybackStore.ts:
-  getFollowerType: (): 'robot' | 'physical_prop' | 'none' => {
+  getFollowerType: (): 'robot' | 'physical_prop' | 'human' | 'none' => {
     const { selectedFile, selectedStudy, trajectories } = get();
     if (!trajectories.follower || trajectories.follower.length === 0) return 'none';
     const name = (selectedFile || '').toLowerCase();
     const study = (selectedStudy || '').toLowerCase();
 
-    // In ReadingWallIntentions and Doors, the follower is an inanimate physical cart/wagon/shelf
-    if (
-      study.includes('readingwall') ||
-      name.includes('cart') ||
-      name.includes('wagon') ||
-      name.includes('shelf') ||
-      name.includes('stroller')
-    ) {
-      return 'physical_prop';
+    // In Obstacle Navigation, the Follower is a human
+    if (study.includes('obstaclenavigation') || name.includes('obstacle')) {
+      return 'human';
     }
 
-    // Default for autonomous mobile robot studies (Cornering, Overtaking, etc.)
-    return 'robot';
-  },
-
-// In usePlaybackStore.ts:
-  getIsDoorStudy: () => {
-    const { selectedFile, selectedStudy } = get();
-    const name = (selectedFile || '').toLowerCase();
-    const study = (selectedStudy || '').toLowerCase();
-    return study.includes('door') || name.includes('door');
-  },
-
-  // Identifies whether the follower slot is an autonomous robot or a physical cart/wagon
-  getFollowerKind: (): 'robot' | 'physical_prop' | 'none' => {
-    const { selectedFile, selectedStudy, trajectories } = get();
-    if (!trajectories.follower || trajectories.follower.length === 0) return 'none';
-    const name = (selectedFile || '').toLowerCase();
-    const study = (selectedStudy || '').toLowerCase();
-
-    // If the trial condition is a pulled/pushed cart, wagon, or shelf in follower slot
     if (
       name.includes('wagon') ||
       name.includes('cart') ||
@@ -336,26 +309,27 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
       return 'physical_prop';
     }
 
-    // Default for robot studies (Cornering, Overtaking, ContactlessPushing, etc.)
     return 'robot';
   },
 
-  // Identifies whether the secondary prop is a human confederate (ReadingWall) vs physical object
+  getIsDoorStudy: () => {
+    const { selectedFile, selectedStudy } = get();
+    const name = (selectedFile || '').toLowerCase();
+    const study = (selectedStudy || '').toLowerCase();
+    return study.includes('door') || name.includes('door');
+  },
+
   getIsPropPerson: (): boolean => {
     const { selectedFile, selectedStudy } = get();
     const name = (selectedFile || '').toLowerCase();
     const study = (selectedStudy || '').toLowerCase();
 
-    // 1. Explicitly flagged in filename
     if (name.includes('propperson') || name.includes('propalyssa')) return true;
 
     if (study.includes('readingwall') || name.includes('readingwall')) {
-      // 2. If filename explicitly mentions a physical object but NO person, it's an object.
       if ((name.includes('cart') || name.includes('wagon') || name.includes('shelf') || name.includes('stroller')) && !name.includes('person')) {
         return false;
       }
-
-      // Default to true for reading wall prop person study
       return true;
     }
     return false;

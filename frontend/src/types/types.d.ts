@@ -7,9 +7,12 @@ export type CorridorWidth = 'thin' | 'medium' | 'wide';
 export type Prop = 'cart' | 'shelf' | 'stroller' | 'wagon' | 'generic'
 export type TableSide = 'left' | 'right';
 export type CornerAngle = 45 | 90 | 135;
+export type FollowerType = 'robot' | 'physical_prop' | 'human' | 'none';
 
 export interface RawSkeletonData {
   leader_markers?: Record<string, [number, number, number][]>;
+  follower_markers?: Record<string, [number, number, number][]>;
+  obstacle_markers?: Record<string, [number, number, number][]>;
   prop_markers?: Record<string, [number, number, number][]>;
   door_markers?: Record<string, [number, number, number]>;
   doorswing_markers?: Record<string, [number, number, number][]>;

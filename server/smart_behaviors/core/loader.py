@@ -63,7 +63,6 @@ class TrajectoryLoader:
             return speeds_derived.round(4).tolist()
 
         raw_med = float(np.nanmedian(np.abs(speed_raw)))
-
         if default_scale == 1000.0 or raw_med > 50.0:
             if raw_med > 300.0 or default_scale == 1000.0:
                 speed_m_s = speed_raw / 1000.0  
@@ -79,7 +78,6 @@ class TrajectoryLoader:
     @classmethod
     def _extract_prop_trajectory(cls, df: pd.DataFrame, coord_scale: float = 1.0) -> Optional[List[List[float]]]:
         cols = list(df.columns)
-
         prop_cols = [c for c in cols if re.match(r"^Prop.*:M_[1-5]-[xyz]$", c, re.IGNORECASE)]
         if prop_cols:
             marker_data = []
@@ -97,7 +95,6 @@ class TrajectoryLoader:
                     mx[untracked] = np.nan
                     my[untracked] = np.nan
                     mz[untracked] = np.nan
-
                     marker_data.append(np.column_stack([mx, my, mz]))
 
             if marker_data:
@@ -116,37 +113,23 @@ class TrajectoryLoader:
                     return clean_arr.round(4).tolist()
 
         px = cls._find_column(cols, [
-            "PositionX_DynamicObject01_World",
-            "PositionX_DynamicObject_World",
-            "PositionX_PropPerson01_World",
-            "PositionX_PropPerson_World",
-            "PositionX_Individual02_World",
-            "PositionX_Person02_World"
+            "PositionX_DynamicObject01_World", "PositionX_DynamicObject_World",
+            "PositionX_PropPerson01_World", "PositionX_PropPerson_World",
+            "PositionX_Individual02_World", "PositionX_Person02_World"
         ])
         py = cls._find_column(cols, [
-            "PositionY_DynamicObject01_World",
-            "PositionY_DynamicObject_World",
-            "PositionY_PropPerson01_World",
-            "PositionY_PropPerson_World",
-            "PositionY_Individual02_World",
-            "PositionY_Person02_World"
+            "PositionY_DynamicObject01_World", "PositionY_DynamicObject_World",
+            "PositionY_PropPerson01_World", "PositionY_PropPerson_World",
+            "PositionY_Individual02_World", "PositionY_Person02_World"
         ])
         if px and py:
             xs = pd.to_numeric(df[px], errors="coerce").ffill().bfill().fillna(0.0).to_numpy() / coord_scale
             zs = pd.to_numeric(df[py], errors="coerce").ffill().bfill().fillna(0.0).to_numpy() / coord_scale
-
             pz = cls._find_column(cols, [
-                "PositionZ_DynamicObject01_World",
-                "PositionZ_DynamicObject_World",
-                "PositionZ_PropPerson01_World",
-                "PositionZ_PropPerson_World",
-                "PositionZ_Individual02_World"
+                "PositionZ_DynamicObject01_World", "PositionZ_DynamicObject_World",
+                "PositionZ_PropPerson01_World", "PositionZ_PropPerson_World", "PositionZ_Individual02_World"
             ])
-            if pz:
-                ys = pd.to_numeric(df[pz], errors="coerce").ffill().bfill().fillna(1.60).to_numpy() / coord_scale
-            else:
-                ys = np.full_like(xs, 1.60)
-
+            ys = pd.to_numeric(df[pz], errors="coerce").ffill().bfill().fillna(1.60).to_numpy() / coord_scale if pz else np.full_like(xs, 1.60)
             return np.column_stack([xs, ys, zs]).round(4).tolist()
 
         return None
@@ -154,11 +137,7 @@ class TrajectoryLoader:
     @classmethod
     def _compute_commitment(cls, df: pd.DataFrame, framerate: float = MOCAP_FPS) -> Optional[List[float]]:
         cols = list(df.columns)
-        precomputed = cls._find_column(cols, [
-            "WallApproachCommitment_Leader01",
-            "WallApproachCommitment",
-            "commitment"
-        ])
+        precomputed = cls._find_column(cols, ["WallApproachCommitment_Leader01", "WallApproachCommitment", "commitment"])
         if precomputed:
             vals = df[precomputed].ffill().bfill().fillna(0.0).to_numpy(float)
             return np.nan_to_num(vals, nan=0.0).round(4).tolist()
@@ -203,7 +182,8 @@ class TrajectoryLoader:
 
     @classmethod
     def _extract_raw_vicon_skeleton(
-        cls, cursor, file_path: str, max_frames: int
+        cls, cursor, file_path: str, max_frames: int,
+        lead_aliases: List[str], foll_aliases: List[str], prop_aliases: List[str], obs_aliases: List[str]
     ) -> Optional[RawSkeletonData]:
         raw_df = None
         base_name = os.path.basename(file_path)
@@ -219,6 +199,8 @@ class TrajectoryLoader:
             study = "ReadingWallIntentions"
             if "doorswithwideaccompaniment" in file_path.lower():
                 study = "DoorsWithWideAccompaniment"
+            elif "obstaclenavigation" in file_path.lower():
+                study = "ObstacleNavigation"
             elif "/" in file_path and "raw" in file_path.lower():
                 parts = file_path.split("/")
                 if "Raw" in parts:
@@ -240,49 +222,50 @@ class TrajectoryLoader:
 
         cols = list(raw_df.columns)
         names = sorted({c.split(":")[0] for c in cols if ":" in c})
-        NON_HUMAN = {
-            "cart", "wagon", "wall", "door", "doorswing", "doorframe",
-            "shelf", "movableshelf", "stroller", "obstacle", "box", "smallcart", "largecart"
-        }
-        human_names = [n for n in names if not n.startswith("Prop") and n.lower() not in NON_HUMAN]
-        if not human_names:
-            return None
+        
+        # Dynamically inject the precise human participant names into the aliases from the RAW file directly
+        NON_HUMAN = {"cart", "wagon", "wall", "door", "doorswing", "doorframe", "shelf", "movableshelf", "stroller", "obstacle", "box", "smallcart", "largecart", "dynamicobstacle", "unnamed"}
+        STANDARD_LABELS = {"leader01", "leader", "individual01", "person01", "person", "follower01", "follower", "robot01", "robot", "gita", "cart01", "wagon01", "smallcart", "largecart", "individual02", "person02", "propperson01", "propperson", "prop01", "prop", "dynamicobject01", "dynamicobject", "shelf01", "shelf", "movableshelf", "stroller01", "stroller", "confederate", "accompanier01", "accompanier", "dynamicobstacle01", "dynamicobstacle", "obstacle01", "obstacle", "box01", "box"}
+        actual_human_names = [n for n in names if n.lower() not in NON_HUMAN and n.lower() not in STANDARD_LABELS]
 
-        walker = human_names[0]
-        leader_markers: dict[str, list[list[float]]] = {}
-        for c in cols:
-            if c.startswith(f"{walker}:") and c.endswith("-x"):
-                marker_name = c[len(walker) + 1 : -2]
-                mx, my, mz = f"{walker}:{marker_name}-x", f"{walker}:{marker_name}-y", f"{walker}:{marker_name}-z"
+        is_reading_wall = "readingwall" in file_path.lower()
+
+        if actual_human_names:
+            lead_aliases = [actual_human_names[0]] + lead_aliases
+        
+        if not is_reading_wall and len(actual_human_names) > 1:
+            foll_aliases = [actual_human_names[1]] + foll_aliases
+            
+        if is_reading_wall and len(actual_human_names) > 1:
+            prop_aliases = [actual_human_names[1]] + prop_aliases
+
+        def extract_markers(target_aliases):
+            match = None
+            for alias in target_aliases:
+                matches = [n for n in names if alias.lower() in n.lower()]
+                if matches:
+                    match = matches[0]
+                    break
+            
+            if not match:
+                return None
+                
+            extracted = {}
+            m_names = {c[len(match) + 1 : -2] for c in cols if c.startswith(f"{match}:") and c.endswith("-x")}
+            for m_name in m_names:
+                mx, my, mz = f"{match}:{m_name}-x", f"{match}:{m_name}-y", f"{match}:{m_name}-z"
                 if mx in cols and my in cols and mz in cols:
                     xs = pd.to_numeric(raw_df[mx], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
                     ys = pd.to_numeric(raw_df[mz], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
                     zs = pd.to_numeric(raw_df[my], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
-                    leader_markers[marker_name] = np.column_stack([xs, ys, zs]).round(4).tolist()[:max_frames]
+                    if np.nanmax(np.abs(xs)) > 0.05:
+                        extracted[m_name] = np.column_stack([xs, ys, zs]).round(4).tolist()[:max_frames]
+            return extracted if extracted else None
 
-        prop_markers: dict[str, list[list[float]]] = {}
-        PROP_TARGETS = ["prop", "shelf", "movableshelf", "stroller", "wagon", "cart", "smallcart", "largecart", "individual02", "person02", "confederate"]
-        prop_namespaces = [
-            n for n in names
-            if any(n.lower().startswith(tgt) for tgt in PROP_TARGETS)
-        ]
-        
-        if prop_namespaces:
-            for prop_who in prop_namespaces:
-                prop_marker_names = sorted({
-                    c[len(prop_who) + 1 : -2]
-                    for c in cols
-                    if c.startswith(f"{prop_who}:") and c.endswith("-x")
-                })
-                for m_name in prop_marker_names:
-                    pmx, pmy, pmz = f"{prop_who}:{m_name}-x", f"{prop_who}:{m_name}-y", f"{prop_who}:{m_name}-z"
-                    if pmx in cols and pmy in cols and pmz in cols:
-                        pxs = pd.to_numeric(raw_df[pmx], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
-                        pys = pd.to_numeric(raw_df[pmz], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
-                        pzs = pd.to_numeric(raw_df[pmy], errors="coerce").interpolate(limit=24).bfill().ffill().to_numpy() / 1000.0
-                        if np.nanmax(np.abs(pxs)) > 0.05:
-                            # Add prefix here so the frontend can split the Cart and Prop Person markers
-                            prop_markers[f"{prop_who}:{m_name}"] = np.column_stack([pxs, pys, pzs]).round(4).tolist()[:max_frames]
+        leader_markers = extract_markers(lead_aliases)
+        follower_markers = extract_markers(foll_aliases)
+        obstacle_markers = extract_markers(obs_aliases)
+        prop_markers = extract_markers(prop_aliases)
 
         door_markers: dict[str, list[float]] = {}
         door_cols = [c for c in cols if c.startswith("Door:") and c.endswith("-x")]
@@ -314,8 +297,10 @@ class TrajectoryLoader:
                     doorswing_markers[m_name] = np.column_stack([s_xs, s_ys, s_zs]).round(4).tolist()[:max_frames]
 
         return RawSkeletonData(
-            leader_markers=leader_markers if leader_markers else None,
-            prop_markers=prop_markers if prop_markers else None,
+            leader_markers=leader_markers,
+            follower_markers=follower_markers,
+            obstacle_markers=obstacle_markers,
+            prop_markers=prop_markers,
             door_markers=door_markers if door_markers else None,
             doorswing_markers=doorswing_markers if doorswing_markers else None,
         )
@@ -329,10 +314,12 @@ class TrajectoryLoader:
             return np.nan_to_num(vals, nan=0.0).round(4).tolist()
 
         names = sorted({c.split(":")[0] for c in cols if ":" in c})
+        NON_HUMAN = {"cart", "wagon", "wall", "door", "doorswing", "doorframe", "shelf", "movableshelf", "stroller", "obstacle", "box", "smallcart", "largecart"}
+        human_names = [n for n in names if not n.lower().startswith("prop") and n.lower() not in NON_HUMAN]
+        
         people = [
-            n for n in names
-            if not n.startswith("Prop")
-            and any(f"{n}:{m}-z" in cols for pair in HAND_MARKERS.values() for m in pair)
+            n for n in human_names
+            if any(f"{n}:{m}-z" in cols for pair in HAND_MARKERS.values() for m in pair)
         ]
         if not people:
             return None
@@ -374,36 +361,35 @@ class TrajectoryLoader:
                         include_raw: bool) -> TrajectoryResponse:
         df = cursor.execute(f"SELECT * FROM read_parquet('{file_path}');").df()
         cols = list(df.columns)
-
+        
         is_reading_wall = "readingwall" in file_path.lower()
+        is_obstacle_nav = "obstaclenavigation" in file_path.lower() or "obstacle" in file_path.lower()
 
-        follower_aliases = [
-            "Follower01", "Follower", "Robot01", "Robot", "Gita",
-            "Cart01", "Cart", "Wagon01", "Wagon", "SmallCart", "LargeCart"
-        ]
-        if not is_reading_wall:
-            follower_aliases.append("Individual02")
-            
-        foll_data = cls._extract_world_coords(df, follower_aliases)
-        if foll_data is None:
-            fx_col = cls._find_column(cols, [
-                "RelativePositionX_Follower01_Follower01Allocentric",
-                "RelativePositionX_Follower_Allocentric"
-            ])
-            fy_col = cls._find_column(cols, [
-                "RelativePositionY_Follower01_Follower01Allocentric",
-                "RelativePositionY_Follower_Allocentric"
-            ])
+        lead_aliases = ["Leader01", "Leader", "Individual01", "Person01", "Person"]
+        foll_aliases = ["Cart01", "Cart", "Wagon01", "Wagon", "SmallCart", "LargeCart", "Shelf", "Stroller", "Follower01", "Follower", "Robot01", "Robot", "Gita", "Individual02", "Person02"]
+        
+        for tgt in ["wagon", "cart", "shelf", "stroller", "robot", "gita"]:
+            if tgt in file_path.lower():
+                foll_aliases.insert(0, tgt)
+                break
+                
+        prop_aliases = ["PropPerson01", "PropPerson", "Prop01", "Prop", "DynamicObject01", "DynamicObject", "Shelf01", "Shelf", "MovableShelf", "Stroller01", "Stroller", "Individual02", "Person02", "confederate"]
+        acc_aliases = ["Accompanier01", "Accompanier"]
+        obs_aliases = ["DynamicObstacle01", "DynamicObstacle", "Obstacle01", "Obstacle", "Box01", "Box"]
+
+        foll_data = None
+        if not is_obstacle_nav:
+            foll_data = cls._extract_world_coords(df, foll_aliases)
+        if foll_data is None and not is_obstacle_nav:
+            fx_col = cls._find_column(cols, ["RelativePositionX_Follower01_Follower01Allocentric", "RelativePositionX_Follower_Allocentric"])
+            fy_col = cls._find_column(cols, ["RelativePositionY_Follower01_Follower01Allocentric", "RelativePositionY_Follower_Allocentric"])
             if fx_col and fy_col:
-                foll_data = (
-                    df[fx_col].ffill().bfill().fillna(0.0).to_numpy(),
-                    df[fy_col].ffill().bfill().fillna(0.0).to_numpy()
-                )
+                foll_data = (df[fx_col].ffill().bfill().fillna(0.0).to_numpy(), df[fy_col].ffill().bfill().fillna(0.0).to_numpy())
 
-        lead_data = cls._extract_world_coords(df, [
-            "Leader01", "Leader", "Individual01", "Person01", "Person"
-        ])
-        if lead_data is None and foll_data is not None:
+        lead_data = None
+        if not is_obstacle_nav:
+            lead_data = cls._extract_world_coords(df, lead_aliases)
+        if lead_data is None and foll_data is not None and not is_obstacle_nav:
             rel_lx = cls._find_column(cols, ["RelativePositionX_Leader01Follower01_Follower01Allocentric"])
             rel_ly = cls._find_column(cols, ["RelativePositionY_Leader01Follower01_Follower01Allocentric"])
             if rel_lx and rel_ly:
@@ -411,55 +397,34 @@ class TrajectoryLoader:
                 dy = df[rel_ly].ffill().bfill().fillna(0.0).to_numpy()
                 lead_data = (foll_data[0] + dx, foll_data[1] + dy)
 
-        prop_aliases = [
-            "PropPerson01", "PropPerson", "Prop01", "Prop",
-            "DynamicObject01", "DynamicObject", "Shelf01", "Shelf", "MovableShelf", "Stroller01", "Stroller",
-        ]
-        if is_reading_wall:
-            prop_aliases.extend(["Individual02", "Person02"])
-
-        prop_data = cls._extract_world_coords(df, prop_aliases)
-        if prop_data is None and foll_data is not None:
-            rel_px = cls._find_column(cols, [
-                "RelativePositionX_DynamicObject01Follower01_Follower01Allocentric",
-                "RelativePositionX_DynamicObjectFollower01_Follower01Allocentric"
-            ])
-            rel_py = cls._find_column(cols, [
-                "RelativePositionY_DynamicObject01Follower01_Follower01Allocentric",
-                "RelativePositionY_DynamicObjectFollower01_Follower01Allocentric"
-            ])
+        prop_data = None
+        if not is_obstacle_nav:
+            prop_data = cls._extract_world_coords(df, prop_aliases)
+        if prop_data is None and foll_data is not None and not is_obstacle_nav:
+            rel_px = cls._find_column(cols, ["RelativePositionX_DynamicObject01Follower01_Follower01Allocentric"])
+            rel_py = cls._find_column(cols, ["RelativePositionY_DynamicObject01Follower01_Follower01Allocentric"])
             if rel_px and rel_py:
                 dpx = df[rel_px].ffill().bfill().fillna(0.0).to_numpy()
                 dpy = df[rel_py].ffill().bfill().fillna(0.0).to_numpy()
                 prop_data = (foll_data[0] + dpx, foll_data[1] + dpy)
 
-        acc_data = cls._extract_world_coords(df, ["Accompanier01", "Accompanier"])
-        if acc_data is None and foll_data is not None:
-            rel_ax = cls._find_column(cols, [
-                "RelativePositionX_Accompanier01Follower01_Follower01Allocentric",
-                "RelativePositionX_DynamicObject01Follower01_Follower01Allocentric" if "accompanied" in file_path.lower() else ""
-            ])
-            rel_ay = cls._find_column(cols, [
-                "RelativePositionY_Accompanier01Follower01_Follower01Allocentric",
-                "RelativePositionY_DynamicObject01Follower01_Follower01Allocentric" if "accompanied" in file_path.lower() else ""
-            ])
+        acc_data = None
+        if not is_obstacle_nav:
+            acc_data = cls._extract_world_coords(df, acc_aliases)
+        if acc_data is None and foll_data is not None and not is_obstacle_nav:
+            rel_ax = cls._find_column(cols, ["RelativePositionX_Accompanier01Follower01_Follower01Allocentric", "RelativePositionX_DynamicObject01Follower01_Follower01Allocentric" if "accompanied" in file_path.lower() else ""])
+            rel_ay = cls._find_column(cols, ["RelativePositionY_Accompanier01Follower01_Follower01Allocentric", "RelativePositionY_DynamicObject01Follower01_Follower01Allocentric" if "accompanied" in file_path.lower() else ""])
             if rel_ax and rel_ay:
                 dax = df[rel_ax].ffill().bfill().fillna(0.0).to_numpy()
                 day = df[rel_ay].ffill().bfill().fillna(0.0).to_numpy()
                 acc_data = (foll_data[0] + dax, foll_data[1] + day)
 
-        obs_data = cls._extract_world_coords(df, [
-            "DynamicObstacle01", "Obstacle01", "Obstacle", "Box01", "Box"
-        ])
-        if obs_data is None and foll_data is not None:
-            rel_ox = cls._find_column(cols, [
-                "RelativePositionX_DynamicObstacle01Follower01_Follower01Allocentric",
-                "RelativePositionX_Obstacle01Follower01_Follower01Allocentric"
-            ])
-            rel_oy = cls._find_column(cols, [
-                "RelativePositionY_DynamicObstacle01Follower01_Follower01Allocentric",
-                "RelativePositionY_Obstacle01Follower01_Follower01Allocentric"
-            ])
+        obs_data = None
+        if not is_obstacle_nav:
+            obs_data = cls._extract_world_coords(df, obs_aliases)
+        if obs_data is None and foll_data is not None and not is_obstacle_nav:
+            rel_ox = cls._find_column(cols, ["RelativePositionX_DynamicObstacle01Follower01_Follower01Allocentric", "RelativePositionX_Obstacle01Follower01_Follower01Allocentric"])
+            rel_oy = cls._find_column(cols, ["RelativePositionY_DynamicObstacle01Follower01_Follower01Allocentric", "RelativePositionY_Obstacle01Follower01_Follower01Allocentric"])
             if rel_ox and rel_oy:
                 dox = df[rel_ox].ffill().bfill().fillna(0.0).to_numpy()
                 doy = df[rel_oy].ffill().bfill().fillna(0.0).to_numpy()
@@ -483,27 +448,52 @@ class TrajectoryLoader:
 
         n = max(len(leader_coords), len(follower_coords), len(accompanier_coords), len(obstacle_coords), len(df))
 
-        # Build raw skeleton FIRST 
         raw_skeleton = None
-        is_known_study = any(s in file_path.lower() for s in ["readingwall", "doorswithwideaccompaniment", "doors"])
+        is_known_study = any(s in file_path.lower() for s in ["readingwall", "doorswithwideaccompaniment", "doors", "obstaclenavigation", "obstacle"])
         if include_raw or is_known_study:
-            raw_skeleton = cls._extract_raw_vicon_skeleton(cursor, file_path, max_frames=n)
+            raw_skeleton = cls._extract_raw_vicon_skeleton(cursor, file_path, n, lead_aliases, foll_aliases, prop_aliases, obs_aliases)
 
+        # Robust generation of 2D floor paths directly from raw optical marker centroids when processed data is missing
         if not leader_coords and raw_skeleton and raw_skeleton.leader_markers:
             pelvis_keys = [k for k in ["LASI", "RASI", "LPSI", "RPSI"] if k in raw_skeleton.leader_markers]
             if not pelvis_keys:
                 pelvis_keys = [k for k in ["C7", "CLAV", "STRN", "ARIEL"] if k in raw_skeleton.leader_markers]
+            if not pelvis_keys:
+                pelvis_keys = list(raw_skeleton.leader_markers.keys())
             if pelvis_keys:
                 pts = [np.array(raw_skeleton.leader_markers[k]) for k in pelvis_keys]
                 pelvis_centroid = np.mean(pts, axis=0)
-                leader_coords = [(float(pt[0]), 0.02, float(pt[2])) for pt in pelvis_centroid]
+                clean_df = pd.DataFrame(pelvis_centroid).interpolate(limit=60).bfill().ffill().fillna(0.0)
+                leader_coords = [(float(pt[0]), 0.02, float(pt[2])) for pt in clean_df.to_numpy()]
+
+        if not follower_coords and raw_skeleton and raw_skeleton.follower_markers:
+            f_pelvis_keys = [k for k in ["LASI", "RASI", "LPSI", "RPSI"] if k in raw_skeleton.follower_markers]
+            if not f_pelvis_keys:
+                f_pelvis_keys = [k for k in ["C7", "CLAV", "STRN", "ARIEL"] if k in raw_skeleton.follower_markers]
+            if not f_pelvis_keys:
+                f_pelvis_keys = list(raw_skeleton.follower_markers.keys())
+            if f_pelvis_keys:
+                f_pts = [np.array(raw_skeleton.follower_markers[k]) for k in f_pelvis_keys]
+                f_pelvis_centroid = np.mean(f_pts, axis=0)
+                clean_df = pd.DataFrame(f_pelvis_centroid).interpolate(limit=60).bfill().ffill().fillna(0.0)
+                follower_coords = [(float(pt[0]), 0.02, float(pt[2])) for pt in clean_df.to_numpy()]
+
+        if not obstacle_coords and raw_skeleton and raw_skeleton.obstacle_markers:
+            o_keys = [k for k in ["LASI", "RASI", "LPSI", "RPSI", "C7", "CLAV", "STRN", "ARIEL", "M_1", "M_2", "M_3", "M_4", "M_5"] if k in raw_skeleton.obstacle_markers]
+            if not o_keys:
+                o_keys = list(raw_skeleton.obstacle_markers.keys())
+            if o_keys:
+                o_pts = [np.array(raw_skeleton.obstacle_markers[k]) for k in o_keys]
+                with np.errstate(invalid="ignore"):
+                    o_centroid = np.nanmean(o_pts, axis=0)
+                clean_df = pd.DataFrame(o_centroid).interpolate(limit=60).bfill().ffill().fillna(0.0)
+                obstacle_coords = [(float(pt[0]), 0.02, float(pt[2])) for pt in clean_df.to_numpy()]
 
         prop_trajectory = None
-
-        # FIX 2: Compute Prop Trajectory from high-fidelity raw skeleton markers FIRST, avoiding zero-padded processed columns
         if raw_skeleton and raw_skeleton.prop_markers:
             marker_arrays = []
-            for coords in raw_skeleton.prop_markers.values():
+            
+            for key, coords in raw_skeleton.prop_markers.items():
                 arr = np.array(coords, dtype=float)
                 invalid = (np.abs(arr[:, 0]) < 0.01) & (np.abs(arr[:, 1]) < 0.01) & (np.abs(arr[:, 2]) < 0.01)
                 arr[invalid] = np.nan
@@ -542,34 +532,13 @@ class TrajectoryLoader:
         if not prop_trajectory:
             prop_trajectory = cls._extract_prop_trajectory(df, coord_scale=coord_scale)
 
-        elif raw_skeleton and raw_skeleton.prop_markers:
-            marker_arrays = []
-            is_human_prop = any(x in file_path.lower() for x in ["propperson", "propalyssa"])
-            
-            for key, coords in raw_skeleton.prop_markers.items():
-                lower_key = key.lower()
-                # Ensure we only use the targeted entity to construct the trajectory centroid
-                if is_human_prop and not ("prop" in lower_key or "person" in lower_key or "alyssa" in lower_key):
-                    continue
-                if not is_human_prop and ("prop" in lower_key or "person" in lower_key or "alyssa" in lower_key):
-                    continue
-                
-                arr = np.array(coords, dtype=float)
-                invalid = (np.abs(arr[:, 0]) < 0.01) & (np.abs(arr[:, 1]) < 0.01) & (np.abs(arr[:, 2]) < 0.01)
-                arr[invalid] = np.nan
-                marker_arrays.append(arr)
-
-            if marker_arrays:
-                prop_trajectory = np.nanmean(np.array(marker_arrays), axis=0).round(4).tolist()
-
-        # FIX 3: Strict Backend Deduplication. If the prop is physically identical to the Follower cart, wipe the prop.
         if len(follower_coords) > 0 and prop_trajectory and len(prop_trajectory) > 0:
             f_arr = np.array(follower_coords)
             p_arr = np.array(prop_trajectory)
             min_len = min(len(f_arr), len(p_arr))
             if min_len > 0:
                 dist = np.linalg.norm(f_arr[:min_len, [0, 2]] - p_arr[:min_len, [0, 2]], axis=1)
-                if np.nanmedian(dist) < 0.15:  # Within 15cm on average = exact same entity
+                if np.nanmedian(dist) < 0.15: 
                     prop_trajectory = []
                     if raw_skeleton:
                         raw_skeleton.prop_markers = None

@@ -8,6 +8,7 @@ interface PedestrianMeshProps {
   nextPosition?: Vec3Tuple;
   color?: string;
   visorColor?: string;
+  opacity?: number;
 }
 
 export function PedestrianMesh({
@@ -15,6 +16,7 @@ export function PedestrianMesh({
   nextPosition,
   color = BRAND.beige[100],
   visorColor = BRAND.cerulean[400],
+  opacity = 0.92
 }: PedestrianMeshProps) {
   if (!position) return null;
   const heading = computeHeading(position, nextPosition);
@@ -30,19 +32,19 @@ export function PedestrianMesh({
       {/* Torso Capsule */}
       <mesh position={[0, 0.75, 0]}>
         <capsuleGeometry args={[0.13, 0.7, 8, 16]} />
-        <meshStandardMaterial color={color} roughness={0.4} metalness={0.1} transparent opacity={0.92} />
+        <meshStandardMaterial color={color} roughness={0.4} metalness={0.1} transparent opacity={opacity} />
       </mesh>
 
       {/* Head */}
       <mesh position={[0, 1.45, 0]}>
         <sphereGeometry args={[0.11, 16, 16]} />
-        <meshStandardMaterial color={color} roughness={0.3} metalness={0.1} transparent opacity={0.92} />
+        <meshStandardMaterial color={color} roughness={0.3} metalness={0.1} transparent opacity={opacity} />
       </mesh>
 
       {/* Forward Heading Visor */}
       <mesh position={[0, 0.85, 0.13]}>
         <boxGeometry args={[0.10, 0.06, 0.05]} />
-        <meshStandardMaterial color={visorColor} emissive={visorColor} emissiveIntensity={0.8} />
+        <meshStandardMaterial color={visorColor} emissive={visorColor} emissiveIntensity={0.8} transparent opacity={opacity} />
       </mesh>
     </group>
   );
